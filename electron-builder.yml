@@ -1,0 +1,45 @@
+appId: br.com.japura.japknock
+productName: JapKnock
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{tailwind.config.js,postcss.config.js}'
+asarUnpack:
+  - resources/**
+win:
+  executableName: JapKnock
+  target:
+    - target: portable
+      arch:
+        - x64
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  artifactName: JapKnock-${version}-setup.${ext}
+  shortcutName: JapKnock
+  uninstallDisplayName: JapKnock
+  createDesktopShortcut: always
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+portable:
+  artifactName: JapKnock-${version}-portable.${ext}
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  identity: null
+  notarize: false
+dmg:
+  artifactName: JapKnock-${version}-${arch}.${ext}
+npmRebuild: false
