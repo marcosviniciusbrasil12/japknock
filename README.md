@@ -94,6 +94,52 @@ src/
 
 No app, canto superior direito da janela: botão **"Trocar"** limpa a identidade e volta pra tela de escolha.
 
+## Atualizações automáticas (releases)
+
+O app verifica updates contra **GitHub Releases** (`marcosviniciusbrasil12/japknock`) automaticamente:
+- 5 segundos depois de abrir.
+- A cada 4 horas enquanto roda.
+- Manualmente via tray → **"Verificar atualizações"**.
+
+Quando há nova versão:
+1. Download em background, sem atrapalhar.
+2. Quando termina, aparece uma notificação **"JapKnock vX.X.X atualizado — pronto pra reiniciar"**.
+3. Aplica automaticamente na próxima vez que o app sair, OU pelo menu do tray **"Reiniciar e atualizar pra vX.X.X"**.
+
+### ⚠️ macOS unsigned — fallback
+
+Apps Mac unsigned (sem Apple Developer Certificate) **podem falhar** na verificação de assinatura na hora de aplicar o update silencioso. Quando isso acontece, em vez de quebrar, o app mostra uma notificação **"Atualização disponível — clique pra baixar"** que abre o navegador na página de releases (`https://github.com/marcosviniciusbrasil12/japknock/releases/latest`) e a pessoa baixa o novo `.dmg` manualmente (workaround documentado na seção de instalação).
+
+### Publicando uma nova versão
+
+Setup único:
+
+1. Cria o repo `marcosviniciusbrasil12/japknock` no GitHub.
+2. Gera um **Personal Access Token** com escopo `repo` em [github.com/settings/tokens](https://github.com/settings/tokens).
+3. Exporta no seu shell:
+   ```bash
+   export GH_TOKEN=ghp_xxxxxxxxxx
+   ```
+   (ou adiciona no `~/.zshrc` pra ficar permanente).
+
+A cada release:
+
+```bash
+# 1. Bump da versão no package.json
+npm version patch    # ou minor, major
+
+# 2. Build + upload pra GitHub Releases (Mac + Windows juntos)
+npm run release
+
+# 3. No GitHub: rascunho da release é criado. Edita as notas, publica.
+```
+
+Pronto — todas as instâncias instaladas vão pegar o update automaticamente na próxima vez que abrirem.
+
+Variantes:
+- `npm run release:mac` — só Mac (`.dmg` arm64+x64)
+- `npm run release:win` — só Windows (`.exe` portable+setup)
+
 ## Customização rápida
 
 - **Trocar foto por avatar real:** edita `Avatar.tsx` pra renderizar `<img>` em vez de iniciais.

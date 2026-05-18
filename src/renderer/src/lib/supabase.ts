@@ -17,7 +17,8 @@ export type KnockPayload = {
 }
 
 export const joinKnockChannel = (
-  onKnock: (payload: KnockPayload) => void
+  onKnock: (payload: KnockPayload) => void,
+  onStatus: (status: string) => void
 ): RealtimeChannel => {
   const channel = supabase.channel(CHANNEL_NAME, {
     config: { broadcast: { self: false } }
@@ -25,7 +26,12 @@ export const joinKnockChannel = (
   channel.on('broadcast', { event: 'knock' }, ({ payload }) => {
     onKnock(payload as KnockPayload)
   })
-  channel.subscribe()
+  console.log('[japknock] connecting to', SUPABASE_URL, 'channel', CHANNEL_NAME)
+  channel.subscribe((status, err) => {
+    console.log('[japknock] status:', status, err ? `err=${err.message}` : '')
+    if (err) console.error('Realtime error', err)
+    onStatus(status)
+  })
   return channel
 }
 

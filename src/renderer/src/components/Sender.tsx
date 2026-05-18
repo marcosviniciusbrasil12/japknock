@@ -16,13 +16,16 @@ export function Sender({ me, onLogout }: Props) {
   const [status, setStatus] = useState<string>('Conectando...')
 
   useEffect(() => {
-    const channel = joinKnockChannel(() => {
-      // Helena doesn't receive
-    })
-    channel.subscribe((s) => {
-      if (s === 'SUBSCRIBED') setStatus('Online')
-      else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') setStatus('Sem conexão')
-    })
+    const channel = joinKnockChannel(
+      () => {
+        // Helena doesn't receive
+      },
+      (s) => {
+        if (s === 'SUBSCRIBED') setStatus('Online')
+        else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED')
+          setStatus('Sem conexão')
+      }
+    )
     channelRef.current = channel
     return () => {
       channel.unsubscribe()

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { RealtimeChannel } from '@supabase/supabase-js'
 import { TeamMember, findMember, clearStoredMe } from '../lib/team'
 import { joinKnockChannel, KnockPayload } from '../lib/supabase'
-import { playKnock } from '../lib/sound'
 import { Avatar } from './Avatar'
 
 type KnockEvent = KnockPayload & { fromName: string }
@@ -19,20 +18,25 @@ export function Receiver({ me, onLogout }: Props) {
   const [knockCount, setKnockCount] = useState<number>(0)
 
   useEffect(() => {
-    const channel = joinKnockChannel((payload) => {
-      if (payload.to !== me.id) return
-      const fromMember = findMember(payload.from)
-      const fromName = fromMember?.name ?? payload.from
-      const event: KnockEvent = { ...payload, fromName }
-      setLastKnock(event)
-      setKnockCount((c) => c + 1)
-      playKnock()
-      window.api.notify(`${fromName} está te chamando`, 'Bateu na sua porta digital 🚪')
-    })
-    channel.subscribe((s) => {
-      if (s === 'SUBSCRIBED') setStatus('Online')
-      else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') setStatus('Sem conexão')
-    })
+    const channel = joinKnockChannel(
+      (payload) => {
+        if (payload.to !== me.id) return
+        const fromMember = findMember(payload.from)
+        const fromName = fromMember?.name ?? payload.from
+        const event: KnockEvent = { ...payload, fromName }
+        setLastKnock(event)
+        setKnockCount((c) => c + 1)
+        // Fullscreen "ESCANCARADO" overlay (covers everything, plays sound on loop)
+        window.api.showKnockAlert(payload.from, fromName)
+        // Quiet system notification as a backup (if the window is somehow blocked)
+        window.api.notify(`${fromName} está te chamando`, 'Bateu na sua porta digital')
+      },
+      (s) => {
+        if (s === 'SUBSCRIBED') setStatus('Online')
+        else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED')
+          setStatus('Sem conexão')
+      }
+    )
     channelRef.current = channel
     return () => {
       channel.unsubscribe()

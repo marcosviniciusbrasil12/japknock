@@ -6,6 +6,9 @@ declare global {
       setAutostart: (enable: boolean) => void
       getAutostart: () => Promise<boolean>
       hideWindow: () => void
+      showKnockAlert: (from: string, fromName: string) => void
+      dismissKnockAlert: () => void
+      onKnockAgain: (cb: (data: { from: string; fromName: string }) => void) => () => void
     }
   }
 }

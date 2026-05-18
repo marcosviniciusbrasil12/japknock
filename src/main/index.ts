@@ -1,13 +1,35 @@
-import { app, BrowserWindow, Tray, Menu, Notification, ipcMain, nativeImage, screen } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  Notification,
+  ipcMain,
+  nativeImage,
+  screen,
+  shell,
+  dialog
+} from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
+
+// Test helper: allow forcing an isolated userData dir per instance.
+// Usage: JAPKNOCK_DATA_DIR=/tmp/japknock-helena open ... → 2nd instance gets its own localStorage.
+if (process.env.JAPKNOCK_DATA_DIR) {
+  app.setPath('userData', process.env.JAPKNOCK_DATA_DIR)
+}
 
 let tray: Tray | null = null
 let mainWindow: BrowserWindow | null = null
+let alertWindow: BrowserWindow | null = null
 let alertInterval: NodeJS.Timeout | null = null
+let updateDownloaded = false
+let pendingUpdateVersion: string | null = null
 
 const isMac = process.platform === 'darwin'
+const RELEASES_URL = 'https://github.com/marcosviniciusbrasil12/japknock/releases/latest'
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -37,6 +59,11 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  // DEBUG: open devtools detached so we can inspect Realtime connection
+  if (process.env.JAPKNOCK_DEBUG) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
+  }
 }
 
 function positionWindow(): void {
@@ -58,6 +85,201 @@ function positionWindow(): void {
       : display.y + display.height - winBounds.height - 60
     mainWindow.setPosition(Math.round(x), Math.round(y), false)
   }
+}
+
+function setupAutoUpdate(): void {
+  if (is.dev) return // skip in dev mode
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.logger = null
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[updater] update available:', info.version)
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    console.log('[updater] no update available')
+  })
+
+  autoUpdater.on('download-progress', (p) => {
+    console.log(`[updater] download progress: ${Math.round(p.percent)}%`)
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[updater] downloaded:', info.version)
+    updateDownloaded = true
+    pendingUpdateVersion = info.version
+    new Notification({
+      title: 'JapKnock atualizado',
+      body: `Versão ${info.version} pronta. Será instalada quando você sair do app — ou clique aqui pra reiniciar agora.`,
+      silent: true
+    })
+      .on('click', () => quitAndInstall())
+      .show()
+    rebuildTrayMenu()
+  })
+
+  autoUpdater.on('error', (err) => {
+    console.error('[updater] error:', err.message)
+    // On macOS unsigned, signature check may fail. Fall back to opening browser
+    // with the latest release page so the user can grab the new .dmg manually.
+    if (isMac && /signature|code\s*sign/i.test(err.message)) {
+      new Notification({
+        title: 'Atualização disponível',
+        body: 'Não foi possível atualizar automaticamente. Clique pra baixar a nova versão.',
+        silent: true
+      })
+        .on('click', () => shell.openExternal(RELEASES_URL))
+        .show()
+    }
+  })
+
+  // First check 5s after startup so we don't slow it down
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((e) => console.error('[updater] check error:', e))
+  }, 5000)
+
+  // Re-check every 4 hours
+  setInterval(
+    () => {
+      autoUpdater.checkForUpdates().catch((e) => console.error('[updater] check error:', e))
+    },
+    4 * 60 * 60 * 1000
+  )
+}
+
+function quitAndInstall(): void {
+  if (!updateDownloaded) return
+  autoUpdater.quitAndInstall(false, true)
+}
+
+async function manualCheckForUpdates(): Promise<void> {
+  if (is.dev) {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'JapKnock',
+      message: 'Modo desenvolvedor — auto-update desativado.',
+      buttons: ['OK']
+    })
+    return
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    if (!result || !result.updateInfo) {
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'JapKnock',
+        message: 'Você está na versão mais recente.',
+        detail: `Versão atual: ${app.getVersion()}`,
+        buttons: ['OK']
+      })
+    }
+  } catch (e) {
+    dialog.showMessageBox({
+      type: 'warning',
+      title: 'JapKnock',
+      message: 'Não foi possível verificar atualizações.',
+      detail: String(e),
+      buttons: ['OK', 'Abrir página de releases']
+    }).then((r) => {
+      if (r.response === 1) shell.openExternal(RELEASES_URL)
+    })
+  }
+}
+
+function showKnockAlert(from: string, fromName: string): void {
+  if (alertWindow && !alertWindow.isDestroyed()) {
+    // Already showing — bump count via IPC
+    alertWindow.webContents.send('knock-again', { from, fromName })
+    alertWindow.focus()
+    alertWindow.moveTop()
+    return
+  }
+
+  const display = screen.getPrimaryDisplay()
+  alertWindow = new BrowserWindow({
+    width: display.bounds.width,
+    height: display.bounds.height,
+    x: display.bounds.x,
+    y: display.bounds.y,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    movable: false,
+    skipTaskbar: true,
+    fullscreenable: false,
+    hasShadow: false,
+    alwaysOnTop: true,
+    focusable: true,
+    minimizable: false,
+    maximizable: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true
+    }
+  })
+
+  alertWindow.setAlwaysOnTop(true, 'screen-saver')
+  alertWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  const baseUrl =
+    is.dev && process.env['ELECTRON_RENDERER_URL']
+      ? process.env['ELECTRON_RENDERER_URL']
+      : `file://${join(__dirname, '../renderer/index.html')}`
+  const params = `from=${encodeURIComponent(from)}&fromName=${encodeURIComponent(fromName)}`
+  alertWindow.loadURL(`${baseUrl}#alert?${params}`)
+
+  alertWindow.once('ready-to-show', () => {
+    alertWindow?.show()
+    alertWindow?.focus()
+    alertWindow?.moveTop()
+  })
+
+  alertWindow.on('closed', () => {
+    alertWindow = null
+    stopAlert()
+  })
+}
+
+function dismissKnockAlert(): void {
+  if (alertWindow && !alertWindow.isDestroyed()) alertWindow.close()
+  alertWindow = null
+  stopAlert()
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return
+  const updateMenuItem = updateDownloaded
+    ? [
+        {
+          label: `Reiniciar e atualizar pra v${pendingUpdateVersion}`,
+          click: () => quitAndInstall()
+        },
+        { type: 'separator' as const }
+      ]
+    : []
+
+  const menu = Menu.buildFromTemplate([
+    ...updateMenuItem,
+    { label: 'Abrir', click: () => toggleWindow() },
+    { label: 'Limpar alerta', click: () => stopAlert() },
+    { type: 'separator' },
+    {
+      label: 'Iniciar no boot',
+      type: 'checkbox',
+      checked: app.getLoginItemSettings().openAtLogin,
+      click: (item) =>
+        app.setLoginItemSettings({ openAtLogin: item.checked, openAsHidden: true })
+    },
+    { label: 'Verificar atualizações', click: () => manualCheckForUpdates() },
+    { label: `Sobre — JapKnock v${app.getVersion()}`, enabled: false },
+    { type: 'separator' },
+    { label: 'Sair', click: () => app.quit() }
+  ])
+  tray?.popUpContextMenu(menu)
 }
 
 function toggleWindow(): void {
@@ -89,13 +311,13 @@ function stopAlert(): void {
 }
 
 function buildTrayImage(): Electron.NativeImage {
-  // 16x16 template image (black + alpha) for macOS menu bar
-  const dataUrl =
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAg0lEQVQ4jWNgGAW0Bv///2f4//8/AzbMxMDAwIBNjImBgYGBkREfYP5//wMDA8N/dPyfgYGBgQVdkpGREZcjGNAFmZiYGFnQBVnQHcEEEvz//z/eUGCEOQDmCJBLcDmCEd0BIBcgewgZw1zPjCqYmZmZ8YYHikN+xRWNDGwUOJ+BgYEBAEQUI3rt9kFNAAAAAElFTkSuQmCC'
-  const img = nativeImage.createFromDataURL(dataUrl)
-  if (img.isEmpty()) return nativeImage.createFromPath(icon).resize({ width: 18, height: 18 })
-  img.setTemplateImage(true)
-  return img
+  // Use bundled icon.png, resized for menu bar (~18x18 on macOS retina)
+  const img = nativeImage.createFromPath(icon)
+  if (img.isEmpty()) {
+    // Fallback: empty image — text title will still show
+    return nativeImage.createEmpty()
+  }
+  return img.resize({ width: 18, height: 18, quality: 'best' })
 }
 
 app.whenReady().then(() => {
@@ -104,6 +326,9 @@ app.whenReady().then(() => {
   const trayImage = buildTrayImage()
   tray = new Tray(trayImage)
   tray.setToolTip('JapKnock')
+  // Text label as visible-fallback in case icon doesn't render (e.g. on first
+  // run before the resources path is fully resolved)
+  if (trayImage.isEmpty()) tray.setTitle('🚪')
 
   createWindow()
 
@@ -112,29 +337,22 @@ app.whenReady().then(() => {
     toggleWindow()
   })
 
-  tray.on('right-click', () => {
-    const menu = Menu.buildFromTemplate([
-      { label: 'Abrir', click: () => toggleWindow() },
-      { label: 'Limpar alerta', click: () => stopAlert() },
-      { type: 'separator' },
-      {
-        label: 'Iniciar no boot',
-        type: 'checkbox',
-        checked: app.getLoginItemSettings().openAtLogin,
-        click: (item) =>
-          app.setLoginItemSettings({ openAtLogin: item.checked, openAsHidden: true })
-      },
-      { type: 'separator' },
-      { label: 'Sair', click: () => app.quit() }
-    ])
-    tray?.popUpContextMenu(menu)
-  })
+  tray.on('right-click', () => rebuildTrayMenu())
 
   ipcMain.handle('notify', (_event, { title, body }: { title: string; body: string }) => {
-    new Notification({ title, body, silent: false }).show()
+    new Notification({ title, body, silent: true }).show()
     startAlert()
     if (mainWindow && !mainWindow.isVisible()) mainWindow.flashFrame(true)
   })
+
+  ipcMain.on(
+    'show-knock-alert',
+    (_event, { from, fromName }: { from: string; fromName: string }) => {
+      showKnockAlert(from, fromName)
+    }
+  )
+
+  ipcMain.on('dismiss-knock-alert', () => dismissKnockAlert())
 
   ipcMain.on('clear-alert', () => stopAlert())
 
@@ -149,6 +367,8 @@ app.whenReady().then(() => {
   if (!app.getLoginItemSettings().openAtLogin) {
     app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
   }
+
+  setupAutoUpdate()
 })
 
 app.on('window-all-closed', () => {
