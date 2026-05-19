@@ -26,9 +26,13 @@ nsis:
   shortcutName: JapKnock
   uninstallDisplayName: JapKnock
   createDesktopShortcut: always
-  oneClick: false
+  # oneClick=true: instalação silenciosa sem wizard. Critical pra auto-update
+  # passar despercebido depois do primeiro install. Match com Slack/Discord/VSCode.
+  oneClick: true
   perMachine: false
-  allowToChangeInstallationDirectory: true
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  differentialPackage: true
 portable:
   artifactName: JapKnock-${version}-portable.${ext}
 mac:
