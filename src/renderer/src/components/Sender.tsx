@@ -3,7 +3,6 @@ import {
   SECTORS,
   SectorId,
   TeamMember,
-  clearStoredMeId,
   membersOfSectorIn,
   findMemberIn
 } from '../lib/team'
@@ -18,7 +17,6 @@ import { SearchBar } from './SearchBar'
 type Props = {
   me: TeamMember
   team: TeamMember[]
-  onLogout: () => void
 }
 
 type ConnStatus = 'online' | 'connecting' | 'offline'
@@ -30,7 +28,7 @@ const norm = (s: string): string =>
 
 const DEBOUNCE_MS = 1500
 
-export function Sender({ me, team, onLogout }: Props) {
+export function Sender({ me, team }: Props) {
   const channelRef = useRef<ReturnType<typeof joinKnockChannel> | null>(null)
   const lastKnockAt = useRef<Record<string, number>>({})
   const lastSectorKnockAt = useRef<Record<string, number>>({})
@@ -135,10 +133,6 @@ export function Sender({ me, team, onLogout }: Props) {
     })
   }
 
-  const handleLogout = (): void => {
-    clearStoredMeId()
-    onLogout()
-  }
 
   const matchesQuery = (m: TeamMember): boolean =>
     !query || norm(m.name).includes(norm(query))
@@ -153,7 +147,6 @@ export function Sender({ me, team, onLogout }: Props) {
         me={me}
         status={status}
         subtitle={status === 'online' ? 'online · transmissão ativa' : undefined}
-        onLogout={handleLogout}
       />
 
       <SearchBar value={query} onChange={setQuery} />

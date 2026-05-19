@@ -1,7 +1,13 @@
 import { supabase } from './supabase'
 import { RealtimeChannel } from '@supabase/supabase-js'
 
-export type SectorId = 'inovacao' | 'financeiro' | 'contabil' | 'infra' | 'marketing'
+export type SectorId =
+  | 'inovacao'
+  | 'financeiro'
+  | 'contabil'
+  | 'infra'
+  | 'marketing'
+  | 'rh'
 
 export type Sector = {
   id: SectorId
@@ -23,7 +29,8 @@ export const SECTORS: Sector[] = [
   { id: 'financeiro', name: 'Financeiro' },
   { id: 'contabil', name: 'Contábil' },
   { id: 'infra', name: 'Infraestrutura' },
-  { id: 'marketing', name: 'Marketing' }
+  { id: 'marketing', name: 'Marketing' },
+  { id: 'rh', name: 'RH/DP' }
 ]
 
 const USERS_TABLE = 'japknock_users'

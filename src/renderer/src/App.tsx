@@ -50,10 +50,10 @@ function App() {
   }
 
   if (me.role === 'sender') {
-    return <Sender me={me} team={team} onLogout={() => setMeId(null)} />
+    return <Sender me={me} team={team} />
   }
 
-  return <Receiver me={me} team={team} onLogout={() => setMeId(null)} />
+  return <Receiver me={me} team={team} />
 }
 
 export default App

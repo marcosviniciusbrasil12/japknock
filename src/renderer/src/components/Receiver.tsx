@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { TeamMember, findMemberIn, clearStoredMeId } from '../lib/team'
+import { TeamMember, findMemberIn } from '../lib/team'
 import { joinKnockChannel, KnockPayload, fetchRecentKnocksTo } from '../lib/supabase'
 import { GL } from '../lib/design'
 import { Avatar } from './Avatar'
@@ -11,7 +11,6 @@ type KnockEvent = KnockPayload & { fromName: string; fromInitials: string; acked
 type Props = {
   me: TeamMember
   team: TeamMember[]
-  onLogout: () => void
 }
 
 type ConnStatus = 'online' | 'connecting' | 'offline'
@@ -37,7 +36,7 @@ const relativeLabel = (ts: number): string => {
   return 'ontem'
 }
 
-export function Receiver({ me, team, onLogout }: Props) {
+export function Receiver({ me, team }: Props) {
   const channelRef = useRef<ReturnType<typeof joinKnockChannel> | null>(null)
   const [status, setStatus] = useState<ConnStatus>('connecting')
   const [recents, setRecents] = useState<KnockEvent[]>([])
@@ -139,10 +138,6 @@ export function Receiver({ me, team, onLogout }: Props) {
     setPending(null)
   }
 
-  const handleLogout = (): void => {
-    clearStoredMeId()
-    onLogout()
-  }
 
   // INCOMING: chamada não-reconhecida → mostra "X bateu na porta"
   if (pending) {
@@ -150,7 +145,7 @@ export function Receiver({ me, team, onLogout }: Props) {
       .length
     return (
       <Popover>
-        <PopoverHeader me={me} status={status} subtitle="chamada recebida" onLogout={handleLogout} />
+        <PopoverHeader me={me} status={status} subtitle="chamada recebida" />
 
         <div className="text-center" style={{ padding: '20px 22px 18px' }}>
           <div className="relative inline-block">
@@ -241,7 +236,7 @@ export function Receiver({ me, team, onLogout }: Props) {
   // IDLE: à escuta
   return (
     <Popover>
-      <PopoverHeader me={me} status={status} subtitle="à escuta" onLogout={handleLogout} />
+      <PopoverHeader me={me} status={status} subtitle="à escuta" />
 
       <div className="text-center" style={{ padding: '24px 22px 18px' }}>
         <div className="relative inline-block">

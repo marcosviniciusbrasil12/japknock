@@ -9,7 +9,6 @@ type Props = {
   me: TeamMember
   status: Status
   subtitle?: string
-  onLogout?: () => void
 }
 
 const statusColor: Record<Status, string> = {
@@ -24,11 +23,11 @@ const statusLabel: Record<Status, string> = {
   offline: 'sem conexão'
 }
 
-export function PopoverHeader({ me, status, subtitle, onLogout }: Props) {
+export function PopoverHeader({ me, status, subtitle }: Props) {
   return (
     <div
       className="flex items-center justify-between px-3.5 py-3"
-      style={{ borderBottom: '0.5px solid var(--gl-divider)' }}
+      style={{ borderBottom: '0.5px solid var(--jk-divider)' }}
     >
       <div className="flex items-center gap-2.5">
         <KnockingHand size={40} radius={26} />
@@ -60,23 +59,6 @@ export function PopoverHeader({ me, status, subtitle, onLogout }: Props) {
       <div className="flex items-center gap-2">
         <span style={{ fontSize: 11, color: GL.muted, fontWeight: 500 }}>{me.name}</span>
         <Avatar member={me} size={22} inverse ring="subtle" />
-        {onLogout && (
-          <button
-            onClick={onLogout}
-            title="Trocar usuário"
-            className="ml-1 transition-colors hover:text-zinc-700"
-            style={{
-              fontSize: 10,
-              color: GL.faint,
-              background: 'transparent',
-              border: 0,
-              cursor: 'pointer',
-              padding: '2px 4px'
-            }}
-          >
-            Trocar
-          </button>
-        )}
       </div>
     </div>
   )
