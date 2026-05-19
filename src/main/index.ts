@@ -6,6 +6,7 @@ import {
   Notification,
   ipcMain,
   nativeImage,
+  nativeTheme,
   screen,
   shell,
   dialog
@@ -14,11 +15,25 @@ import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
+import trayTemplate from '../../resources/trayTemplate.png?asset'
+import trayTemplate2x from '../../resources/trayTemplate@2x.png?asset'
+import trayTemplate3x from '../../resources/trayTemplate@3x.png?asset'
 
 // Test helper: allow forcing an isolated userData dir per instance.
 // Usage: JAPKNOCK_DATA_DIR=/tmp/japknock-helena open ... → 2nd instance gets its own localStorage.
-if (process.env.JAPKNOCK_DATA_DIR) {
-  app.setPath('userData', process.env.JAPKNOCK_DATA_DIR)
+const isTestMode = !!process.env.JAPKNOCK_DATA_DIR
+if (isTestMode) {
+  app.setPath('userData', process.env.JAPKNOCK_DATA_DIR!)
+}
+
+// Single instance lock — só 1 JapKnock por usuário em produção.
+// Em test mode (JAPKNOCK_DATA_DIR setado), pulamos pra permitir múltiplas instâncias paralelas.
+if (!isTestMode) {
+  const gotLock = app.requestSingleInstanceLock()
+  if (!gotLock) {
+    // Outra instância já tá rodando — sai silenciosamente. A outra vai pegar o foco.
+    app.quit()
+  }
 }
 
 let tray: Tray | null = null
@@ -27,16 +42,35 @@ let alertWindow: BrowserWindow | null = null
 let alertInterval: NodeJS.Timeout | null = null
 let updateDownloaded = false
 let pendingUpdateVersion: string | null = null
+let currentAlert: { from: string; fromName: string } | null = null
 
 const isMac = process.platform === 'darwin'
 const RELEASES_URL = 'https://github.com/marcosviniciusbrasil12/japknock/releases/latest'
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 380,
-    height: 560,
+    width: 360,
+    height: 520,
     show: false,
     frame: false,
+    ...(isMac
+      ? {
+          // macOS: NSVisualEffectMaterialPopover — mesmo material usado pelos
+          // popovers nativos (Foco, Centro de Controle, Bateria).
+          vibrancy: 'popover' as const,
+          visualEffectState: 'active' as const,
+          transparent: true,
+          backgroundColor: '#00000000',
+          roundedCorners: true
+        }
+      : {
+          // Windows: 'acrylic' (Win10+) ou 'mica' (Win11). Acrylic dá um glass
+          // similar ao macOS, transparent + bg 0 são obrigatórios pra funcionar.
+          backgroundMaterial: 'acrylic' as const,
+          transparent: true,
+          backgroundColor: '#00000000'
+        }),
+    hasShadow: true,
     fullscreenable: false,
     resizable: false,
     skipTaskbar: true,
@@ -48,6 +82,15 @@ function createWindow(): void {
       sandbox: false,
       contextIsolation: true
     }
+  })
+
+  // Notifica o renderer sobre mudanças de tema (light/dark) do sistema
+  const broadcastTheme = (): void => {
+    mainWindow?.webContents.send('theme-changed', nativeTheme.shouldUseDarkColors)
+  }
+  nativeTheme.on('updated', broadcastTheme)
+  mainWindow.on('closed', () => {
+    nativeTheme.off('updated', broadcastTheme)
   })
 
   mainWindow.on('blur', () => {
@@ -72,8 +115,9 @@ function positionWindow(): void {
   const winBounds = mainWindow.getBounds()
 
   if (isMac) {
+    // Encostado na barra de menu (1px gap só pra não colar de cara)
     const x = Math.round(trayBounds.x + trayBounds.width / 2 - winBounds.width / 2)
-    const y = Math.round(trayBounds.y + trayBounds.height + 4)
+    const y = Math.round(trayBounds.y + trayBounds.height + 1)
     mainWindow.setPosition(x, y, false)
   } else {
     const display = screen.getPrimaryDisplay().workArea
@@ -89,6 +133,19 @@ function positionWindow(): void {
 
 function setupAutoUpdate(): void {
   if (is.dev) return // skip in dev mode
+
+  // electron-updater needs a Resources/app-update.yml file embedded in the bundle.
+  // It's only generated when building with a full target (--mac/.dmg, not --dir).
+  // If it's missing (e.g. running an unpacked build for debugging), skip setup
+  // entirely so the missing-file error doesn't crash the app.
+  const appUpdatePath = join(process.resourcesPath, 'app-update.yml')
+  try {
+    require('fs').accessSync(appUpdatePath)
+  } catch {
+    console.log('[updater] app-update.yml missing — auto-update disabled for this build')
+    return
+  }
+
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = null
@@ -188,6 +245,7 @@ async function manualCheckForUpdates(): Promise<void> {
 }
 
 function showKnockAlert(from: string, fromName: string): void {
+  currentAlert = { from, fromName }
   if (alertWindow && !alertWindow.isDestroyed()) {
     // Already showing — bump count via IPC
     alertWindow.webContents.send('knock-again', { from, fromName })
@@ -206,6 +264,17 @@ function showKnockAlert(from: string, fromName: string): void {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
+    // Borrão nativo do SO pra integrar o alerta com o desktop:
+    // - macOS: vibrancy 'fullscreen-ui' (estilo Foco/Stage Manager)
+    // - Windows: backgroundMaterial 'acrylic' (blur Win10+)
+    ...(isMac
+      ? {
+          vibrancy: 'fullscreen-ui' as const,
+          visualEffectState: 'active' as const
+        }
+      : {
+          backgroundMaterial: 'acrylic' as const
+        }),
     resizable: false,
     movable: false,
     skipTaskbar: true,
@@ -215,6 +284,7 @@ function showKnockAlert(from: string, fromName: string): void {
     focusable: true,
     minimizable: false,
     maximizable: false,
+    closable: false, // não permite Cmd+W fechar — só clicando no botão
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -224,6 +294,14 @@ function showKnockAlert(from: string, fromName: string): void {
 
   alertWindow.setAlwaysOnTop(true, 'screen-saver')
   alertWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+  // Bloqueia shortcuts comuns que poderiam fechar/minimizar (Cmd+W, Cmd+Q, Cmd+M, ESC)
+  alertWindow.webContents.on('before-input-event', (event, input) => {
+    const isClose =
+      (input.meta || input.control) && ['w', 'q', 'm', 'h'].includes(input.key.toLowerCase())
+    const isEscape = input.key === 'Escape'
+    if (isClose || isEscape) event.preventDefault()
+  })
 
   const baseUrl =
     is.dev && process.env['ELECTRON_RENDERER_URL']
@@ -245,9 +323,19 @@ function showKnockAlert(from: string, fromName: string): void {
 }
 
 function dismissKnockAlert(): void {
-  if (alertWindow && !alertWindow.isDestroyed()) alertWindow.close()
+  // Avisa o Receiver popover que o alerta foi reconhecido, com info de quem chamou,
+  // pra ele limpar o estado "pending" e mandar o ack pra Helena via Realtime.
+  const ackInfo = currentAlert
+  currentAlert = null
+  if (alertWindow && !alertWindow.isDestroyed()) {
+    // .destroy() ignora closable:false (que .close() respeita)
+    alertWindow.destroy()
+  }
   alertWindow = null
   stopAlert()
+  if (ackInfo && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('alert-acknowledged', ackInfo)
+  }
 }
 
 function rebuildTrayMenu(): void {
@@ -267,17 +355,13 @@ function rebuildTrayMenu(): void {
     { label: 'Abrir', click: () => toggleWindow() },
     { label: 'Limpar alerta', click: () => stopAlert() },
     { type: 'separator' },
-    {
-      label: 'Iniciar no boot',
-      type: 'checkbox',
-      checked: app.getLoginItemSettings().openAtLogin,
-      click: (item) =>
-        app.setLoginItemSettings({ openAtLogin: item.checked, openAsHidden: true })
-    },
     { label: 'Verificar atualizações', click: () => manualCheckForUpdates() },
     { label: `Sobre — JapKnock v${app.getVersion()}`, enabled: false },
     { type: 'separator' },
-    { label: 'Sair', click: () => app.quit() }
+    {
+      label: 'Sair (ferramenta corporativa, abrirá no próximo boot)',
+      click: () => app.quit()
+    }
   ])
   tray?.popUpContextMenu(menu)
 }
@@ -311,13 +395,29 @@ function stopAlert(): void {
 }
 
 function buildTrayImage(): Electron.NativeImage {
-  // Use bundled icon.png, resized for menu bar (~18x18 on macOS retina)
-  const img = nativeImage.createFromPath(icon)
+  // Use the macOS template glyph (black + alpha) so the system can tint it
+  // automatically for light/dark menu bars.
+  const img = nativeImage.createFromPath(trayTemplate)
   if (img.isEmpty()) {
-    // Fallback: empty image — text title will still show
-    return nativeImage.createEmpty()
+    // Fallback to colored app icon if template missing
+    return nativeImage.createFromPath(icon).resize({ width: 22, height: 22, quality: 'best' })
   }
-  return img.resize({ width: 18, height: 18, quality: 'best' })
+  // Add @2x and @3x companions for retina/super-retina displays
+  for (const [scale, path] of [
+    [2, trayTemplate2x],
+    [3, trayTemplate3x]
+  ] as const) {
+    try {
+      const variant = nativeImage.createFromPath(path)
+      if (!variant.isEmpty()) {
+        img.addRepresentation({ scaleFactor: scale, buffer: variant.toPNG() })
+      }
+    } catch {
+      // ignore — lower-density fallbacks still work
+    }
+  }
+  img.setTemplateImage(true)
+  return img
 }
 
 app.whenReady().then(() => {
@@ -362,11 +462,13 @@ app.whenReady().then(() => {
 
   ipcMain.handle('get-autostart', () => app.getLoginItemSettings().openAtLogin)
 
+  ipcMain.handle('get-theme', () => nativeTheme.shouldUseDarkColors)
+
   ipcMain.on('hide-window', () => mainWindow?.hide())
 
-  if (!app.getLoginItemSettings().openAtLogin) {
-    app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
-  }
+  // Mandatório: app corporativo deve SEMPRE iniciar no boot.
+  // Force a config em toda abertura — usuário não consegue desligar.
+  app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true })
 
   setupAutoUpdate()
 })

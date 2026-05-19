@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { findMember } from '../lib/team'
+import { useSystemTheme } from '../lib/theme'
 import { Avatar } from './Avatar'
 import { playKnock } from '../lib/sound'
+import { GL } from '../lib/design'
 
 function parseHashParams(): { from: string; fromName: string } {
   const hash = window.location.hash.replace(/^#alert\??/, '')
@@ -12,33 +14,49 @@ function parseHashParams(): { from: string; fromName: string } {
   }
 }
 
+const formatTime = (): string => {
+  const d = new Date()
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+}
+
 export function AlertOverlay() {
+  useSystemTheme() // adapta light/dark
   const initial = parseHashParams()
   const [from, setFrom] = useState(initial.from)
   const [fromName, setFromName] = useState(initial.fromName)
   const [count, setCount] = useState(1)
+  const [timeLabel, setTimeLabel] = useState(formatTime())
 
   const member = findMember(from)
+  const initials = member?.initials ?? fromName.slice(0, 2).toUpperCase()
 
-  // Loop sound until dismissed
   useEffect(() => {
     playKnock()
     const interval = setInterval(() => playKnock(), 1100)
     return () => clearInterval(interval)
   }, [])
 
-  // ESC dismisses
   useEffect(() => {
-    const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape' || e.key === 'Enter') {
-        window.api.dismissKnockAlert()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    const t = setInterval(() => setTimeLabel(formatTime()), 60_000)
+    return () => clearInterval(t)
   }, [])
 
-  // Subsequent knocks bump the counter
+  // BLOQUEIO TOTAL DE TECLADO
+  useEffect(() => {
+    const block = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('keydown', block, true)
+    window.addEventListener('keyup', block, true)
+    window.addEventListener('keypress', block, true)
+    return () => {
+      window.removeEventListener('keydown', block, true)
+      window.removeEventListener('keyup', block, true)
+      window.removeEventListener('keypress', block, true)
+    }
+  }, [])
+
   useEffect(() => {
     const off = window.api.onKnockAgain((data) => {
       setFrom(data.from)
@@ -53,93 +71,149 @@ export function AlertOverlay() {
 
   return (
     <div
-      onClick={dismiss}
-      className="fixed inset-0 flex items-center justify-center cursor-pointer"
+      className="fixed inset-0 overflow-hidden"
       style={{
-        background:
-          'radial-gradient(circle at center, rgba(220, 38, 38, 0.55) 0%, rgba(0, 0, 0, 0.92) 80%)',
-        animation: 'flash 1.2s ease-in-out infinite alternate'
+        // Vibrancy nativa já é aplicada pela janela (fullscreen-ui).
+        // Aqui só adicionamos um leve overlay translúcido pra dar foco no card.
+        background: 'transparent',
+        containerType: 'inline-size',
+        cursor: 'default'
       }}
     >
       <style>{`
-        @keyframes flash {
-          0%   { background: radial-gradient(circle at center, rgba(220, 38, 38, 0.55) 0%, rgba(0, 0, 0, 0.92) 80%); }
-          100% { background: radial-gradient(circle at center, rgba(220, 38, 38, 0.25) 0%, rgba(0, 0, 0, 0.85) 80%); }
+        @keyframes jk-alert-ping {
+          0%   { transform: scale(1);   opacity: .7; }
+          80%, 100% { transform: scale(1.6); opacity: 0; }
         }
-        @keyframes shake-bell {
-          0%, 100% { transform: rotate(-12deg); }
-          50%      { transform: rotate(12deg); }
-        }
-        @keyframes pulse-ring {
-          0%   { transform: scale(1);   opacity: 0.9; }
-          70%  { transform: scale(1.6); opacity: 0; }
-          100% { transform: scale(1.6); opacity: 0; }
-        }
-        @keyframes scale-in {
-          0%   { transform: scale(0.7); opacity: 0; }
+        @keyframes jk-scale-in {
+          0%   { transform: scale(.96); opacity: 0; }
           100% { transform: scale(1);   opacity: 1; }
         }
       `}</style>
 
+      {/* Status row no topo — combina com vibrancy do sistema */}
       <div
-        onClick={(e) => e.stopPropagation()}
-        className="flex flex-col items-center text-white px-12 py-10 rounded-3xl"
-        style={{ animation: 'scale-in 0.35s cubic-bezier(.2,1.2,.4,1)' }}
+        className="absolute top-0 left-0 right-0 flex items-center justify-between uppercase"
+        style={{
+          padding: '1.6cqi 4cqi',
+          color: GL.muted,
+          fontSize: '1.1cqi',
+          fontWeight: 500,
+          letterSpacing: '.04em'
+        }}
       >
-        <div className="relative mb-8">
-          <div
-            className="absolute inset-0 rounded-full bg-red-500"
-            style={{ animation: 'pulse-ring 1.4s ease-out infinite' }}
-          />
-          <div
-            className="absolute inset-0 rounded-full bg-red-500"
-            style={{ animation: 'pulse-ring 1.4s ease-out infinite 0.4s' }}
-          />
-          {member ? (
-            <div className="relative">
-              <Avatar member={member} size={200} />
-            </div>
-          ) : (
-            <div
-              className="relative w-[200px] h-[200px] rounded-full bg-zinc-700 flex items-center justify-center text-7xl"
-              style={{ animation: 'shake-bell 0.4s ease-in-out infinite' }}
-            >
-              🔔
-            </div>
-          )}
-          <div
-            className="absolute -top-4 -right-4 text-7xl"
+        <div className="flex items-center" style={{ gap: '.8cqi' }}>
+          <span
+            className="rounded-full"
             style={{
-              animation: 'shake-bell 0.4s ease-in-out infinite',
-              filter: 'drop-shadow(0 0 12px rgba(255, 200, 50, 0.9))'
+              width: '.7cqi',
+              height: '.7cqi',
+              background: GL.ink,
+              animation: 'jk-blink 800ms ease-in-out infinite'
+            }}
+          />
+          japknock · chamada entrante
+        </div>
+        <span>{timeLabel}</span>
+      </div>
+
+      {/* Card centralizado */}
+      <div
+        className="absolute inset-0 flex items-center justify-center"
+        style={{ padding: '6cqi' }}
+      >
+        <div
+          className="text-center flex flex-col items-center"
+          style={{
+            width: '48cqi',
+            maxWidth: '90%',
+            padding: '4cqi 4cqi 3.2cqi',
+            gap: '2cqi',
+            // Card semi-transparente: deixa o vibrancy da janela aparecer
+            background: 'var(--jk-card-bg)',
+            borderRadius: '2.4cqi',
+            border: '0.5px solid var(--jk-divider)',
+            boxShadow:
+              '0 4cqi 8cqi -2cqi rgba(0,0,0,.35), 0 1.4cqi 3.6cqi -1cqi rgba(0,0,0,.22)',
+            animation: 'jk-scale-in .4s cubic-bezier(.2,1.2,.4,1)'
+          }}
+        >
+          {/* Avatar + ping rings */}
+          <div className="relative inline-block">
+            <Avatar
+              member={{
+                id: from,
+                name: fromName,
+                initials,
+                role: 'sender',
+                sector: null
+              }}
+              size={140}
+            />
+            <span
+              className="absolute rounded-full"
+              style={{
+                inset: 0,
+                border: '.18cqi solid var(--jk-muted)',
+                animation: 'jk-alert-ping 1.4s ease-out infinite',
+                pointerEvents: 'none'
+              }}
+            />
+            <span
+              className="absolute rounded-full"
+              style={{
+                inset: 0,
+                border: '.18cqi solid var(--jk-muted)',
+                animation: 'jk-alert-ping 1.4s ease-out .5s infinite',
+                pointerEvents: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{ marginTop: '.4cqi' }}>
+            <div
+              className="font-bold"
+              style={{
+                fontSize: '3.4cqi',
+                letterSpacing: '-.025em',
+                lineHeight: 1.05,
+                color: GL.ink
+              }}
+            >
+              {fromName} bateu na porta
+            </div>
+            <div
+              className="font-medium"
+              style={{
+                fontSize: '1.4cqi',
+                color: GL.muted,
+                marginTop: '.6cqi'
+              }}
+            >
+              {count > 1
+                ? `${count}ª chamada seguida — provavelmente urgente`
+                : 'A diretoria tá chamando você.'}
+            </div>
+          </div>
+
+          <button
+            onClick={dismiss}
+            className="font-semibold transition-opacity hover:opacity-90"
+            style={{
+              padding: '1.6cqi 3.6cqi',
+              fontSize: '1.7cqi',
+              letterSpacing: '-.01em',
+              borderRadius: '.8cqi',
+              minWidth: '18cqi',
+              background: GL.ink,
+              color: GL.paper,
+              border: 0,
+              cursor: 'pointer',
+              marginTop: '.6cqi'
             }}
           >
-            🔔
-          </div>
-        </div>
-
-        <div
-          className="text-7xl font-black mb-3 tracking-tight text-center"
-          style={{ textShadow: '0 4px 20px rgba(0,0,0,0.7)' }}
-        >
-          {fromName.toUpperCase()}
-        </div>
-        <div className="text-3xl text-zinc-200 mb-2 font-light">está te chamando</div>
-        {count > 1 && (
-          <div className="text-xl text-amber-300 font-bold mb-2">
-            ({count}x — tá impaciente)
-          </div>
-        )}
-
-        <button
-          onClick={dismiss}
-          className="mt-10 px-12 py-5 bg-emerald-500 hover:bg-emerald-400 text-white text-2xl font-bold rounded-full shadow-2xl transition-transform hover:scale-105 active:scale-95"
-          style={{ boxShadow: '0 0 60px rgba(16, 185, 129, 0.6)' }}
-        >
-          Vou já! 🏃
-        </button>
-        <div className="mt-4 text-sm text-zinc-400">
-          Aperta ESC, ENTER ou clica fora pra fechar
+            Tô indo ↗
+          </button>
         </div>
       </div>
     </div>

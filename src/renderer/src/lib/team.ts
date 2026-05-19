@@ -1,23 +1,37 @@
+export type SectorId = 'inovacao' | 'financeiro' | 'contabil' | 'infra' | 'marketing'
+
+export type Sector = {
+  id: SectorId
+  name: string
+}
+
 export type TeamMember = {
   id: string
   name: string
   role: 'sender' | 'receiver'
   initials: string
-  color: string
+  sector: SectorId | null
 }
 
+export const SECTORS: Sector[] = [
+  { id: 'inovacao', name: 'Inovação' }
+  // Outros setores virão quando tiver gente neles. Mantendo só Inovação por enquanto.
+]
+
 export const TEAM: TeamMember[] = [
-  { id: 'helena', name: 'Helena', role: 'sender', initials: 'HE', color: '#EC4899' },
-  { id: 'marcos', name: 'Marcos', role: 'receiver', initials: 'MA', color: '#3B82F6' },
-  { id: 'maira', name: 'Maira', role: 'receiver', initials: 'MI', color: '#10B981' },
-  { id: 'silvio', name: 'Silvio', role: 'receiver', initials: 'SI', color: '#F59E0B' },
-  { id: 'daniel', name: 'Daniel', role: 'receiver', initials: 'DA', color: '#8B5CF6' },
-  { id: 'vinicius', name: 'Vinicius', role: 'receiver', initials: 'VI', color: '#EF4444' },
-  { id: 'paulo', name: 'Paulo', role: 'receiver', initials: 'PA', color: '#06B6D4' }
+  { id: 'helena', name: 'Helena', role: 'sender', initials: 'HE', sector: null },
+  { id: 'marcos', name: 'Marcos', role: 'receiver', initials: 'MA', sector: 'inovacao' },
+  { id: 'maira', name: 'Maira', role: 'receiver', initials: 'MI', sector: 'inovacao' },
+  { id: 'silvio', name: 'Silvio', role: 'receiver', initials: 'SI', sector: 'inovacao' },
+  { id: 'daniel', name: 'Daniel', role: 'receiver', initials: 'DA', sector: 'inovacao' },
+  { id: 'vinicius', name: 'Vinicius', role: 'receiver', initials: 'VI', sector: 'inovacao' },
+  { id: 'paulo', name: 'Paulo', role: 'receiver', initials: 'PA', sector: 'inovacao' }
 ]
 
 export const RECEIVERS = TEAM.filter((t) => t.role === 'receiver')
 export const findMember = (id: string): TeamMember | undefined => TEAM.find((t) => t.id === id)
+export const membersOfSector = (sectorId: SectorId): TeamMember[] =>
+  RECEIVERS.filter((m) => m.sector === sectorId)
 
 const STORAGE_KEY = 'japknock.me'
 export const getStoredMe = (): TeamMember | null => {
