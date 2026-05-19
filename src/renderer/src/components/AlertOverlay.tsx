@@ -5,12 +5,13 @@ import { Avatar } from './Avatar'
 import { playKnock } from '../lib/sound'
 import { GL } from '../lib/design'
 
-function parseHashParams(): { from: string; fromName: string } {
+function parseHashParams(): { from: string; fromName: string; silent: boolean } {
   const hash = window.location.hash.replace(/^#alert\??/, '')
   const params = new URLSearchParams(hash)
   return {
     from: params.get('from') ?? 'helena',
-    fromName: params.get('fromName') ?? 'Alguém'
+    fromName: params.get('fromName') ?? 'Alguém',
+    silent: params.get('silent') === '1'
   }
 }
 
@@ -31,6 +32,7 @@ export function AlertOverlay() {
   const initials = member?.initials ?? fromName.slice(0, 2).toUpperCase()
 
   useEffect(() => {
+    if (initial.silent) return // monitores secundários não tocam som — evita eco
     playKnock()
     const interval = setInterval(() => playKnock(), 1100)
     return () => clearInterval(interval)
@@ -62,10 +64,10 @@ export function AlertOverlay() {
       setFrom(data.from)
       setFromName(data.fromName)
       setCount((c) => c + 1)
-      playKnock()
+      if (!initial.silent) playKnock()
     })
     return off
-  }, [])
+  }, [initial.silent])
 
   const dismiss = (): void => window.api.dismissKnockAlert()
 

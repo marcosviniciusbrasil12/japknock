@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { SECTORS, TeamMember, clearStoredMe, membersOfSector, findMember } from '../lib/team'
+import {
+  SECTORS,
+  SectorId,
+  TeamMember,
+  clearStoredMe,
+  membersOfSector,
+  findMember
+} from '../lib/team'
 import { joinKnockChannel } from '../lib/supabase'
 import { playSent } from '../lib/sound'
 import { GL } from '../lib/design'
@@ -25,12 +32,39 @@ const DEBOUNCE_MS = 1500
 export function Sender({ me, onLogout }: Props) {
   const channelRef = useRef<ReturnType<typeof joinKnockChannel> | null>(null)
   const lastKnockAt = useRef<Record<string, number>>({})
+  const lastSectorKnockAt = useRef<Record<string, number>>({})
   const [hover, setHover] = useState<string | null>(null)
-  const [active, setActive] = useState<string | null>(null)
-  const [justSent, setJustSent] = useState<string | null>(null)
+  const [active, setActive] = useState<Set<string>>(new Set())
+  const [justSent, setJustSent] = useState<Set<string>>(new Set())
+  const [hoverSector, setHoverSector] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<ConnStatus>('connecting')
   const [acks, setAcks] = useState<Record<string, AckInfo>>({})
+
+  const addActive = (id: string): void =>
+    setActive((s) => {
+      const n = new Set(s)
+      n.add(id)
+      return n
+    })
+  const removeActive = (id: string): void =>
+    setActive((s) => {
+      const n = new Set(s)
+      n.delete(id)
+      return n
+    })
+  const addSent = (id: string): void =>
+    setJustSent((s) => {
+      const n = new Set(s)
+      n.add(id)
+      return n
+    })
+  const removeSent = (id: string): void =>
+    setJustSent((s) => {
+      const n = new Set(s)
+      n.delete(id)
+      return n
+    })
 
   useEffect(() => {
     const channel = joinKnockChannel({
@@ -68,7 +102,7 @@ export function Sender({ me, onLogout }: Props) {
     if (now - last < DEBOUNCE_MS) return
     lastKnockAt.current[target.id] = now
 
-    setActive(target.id)
+    addActive(target.id)
     setAcks((prev) => {
       const { [target.id]: _drop, ...rest } = prev
       return rest
@@ -80,10 +114,24 @@ export function Sender({ me, onLogout }: Props) {
       console.error('Failed to send knock', e)
     }
     setTimeout(() => {
-      setActive(null)
-      setJustSent(target.id)
-      setTimeout(() => setJustSent(null), 1400)
+      removeActive(target.id)
+      addSent(target.id)
+      setTimeout(() => removeSent(target.id), 1400)
     }, 900)
+  }
+
+  // Chama todo o setor de uma vez (com staggering leve pra evitar burst no Realtime)
+  const knockSector = (sectorId: SectorId): void => {
+    if (status !== 'online') return
+    const now = Date.now()
+    const last = lastSectorKnockAt.current[sectorId] ?? 0
+    if (now - last < DEBOUNCE_MS) return
+    lastSectorKnockAt.current[sectorId] = now
+
+    const members = membersOfSector(sectorId)
+    members.forEach((m, i) => {
+      setTimeout(() => knock(m), i * 80)
+    })
   }
 
   const handleLogout = (): void => {
@@ -112,6 +160,8 @@ export function Sender({ me, onLogout }: Props) {
           const members = membersOfSector(sec.id).filter(matchesQuery)
           if (query && members.length === 0) return null
 
+          const sectorMembers = membersOfSector(sec.id)
+          const isSectorHover = hoverSector === sec.id
           return (
             <div key={sec.id} className="py-1.5">
               <div className="flex items-center gap-2 px-1.5 pt-0.5 pb-1">
@@ -126,23 +176,51 @@ export function Sender({ me, onLogout }: Props) {
                   {sec.name}
                 </span>
                 <span className="flex-1 h-px" style={{ background: 'var(--gl-divider)' }} />
-                <span
-                  className="font-medium uppercase"
+                <button
+                  onClick={() => knockSector(sec.id)}
+                  onMouseEnter={() => setHoverSector(sec.id)}
+                  onMouseLeave={() => setHoverSector(null)}
+                  disabled={status !== 'online' || sectorMembers.length === 0}
+                  className="flex items-center gap-1 font-semibold uppercase transition-all"
                   style={{
-                    fontSize: 10,
-                    color: GL.faint,
-                    letterSpacing: '.04em'
+                    fontSize: 9.5,
+                    letterSpacing: '.05em',
+                    color: isSectorHover ? GL.ink : GL.muted,
+                    background: isSectorHover ? 'var(--jk-hover)' : 'transparent',
+                    border: 0,
+                    padding: '3px 7px',
+                    borderRadius: 5,
+                    cursor: status === 'online' ? 'pointer' : 'not-allowed',
+                    opacity: status === 'online' ? 1 : 0.4
                   }}
+                  title={`Chamar todos de ${sec.name}`}
                 >
-                  {membersOfSector(sec.id).length}
-                </span>
+                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M2.5 7v2c0 .55.45 1 1 1h.5l2 3 .5-.5V4.5L6 4l-2 3h-.5c-.55 0-1 .45-1 1z"
+                      fill="currentColor"
+                    />
+                    <path
+                      d="M8.5 4L13 2v12L8.5 12V4z"
+                      fill="currentColor"
+                    />
+                    <path
+                      d="M14 6c.55.45.95 1.15.95 2s-.4 1.55-.95 2"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      fill="none"
+                    />
+                  </svg>
+                  <span>Chamar {sectorMembers.length}</span>
+                </button>
               </div>
 
               <div className="grid grid-cols-2 gap-0.5">
                 {members.map((m) => {
                   const isHover = hover === m.id
-                  const isActive = active === m.id
-                  const wasSent = justSent === m.id
+                  const isActive = active.has(m.id)
+                  const wasSent = justSent.has(m.id)
                   const ack = acks[m.id]
                   return (
                     <button

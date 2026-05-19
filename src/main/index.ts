@@ -42,7 +42,7 @@ if (!isTestMode) {
 
 let tray: Tray | null = null
 let mainWindow: BrowserWindow | null = null
-let alertWindow: BrowserWindow | null = null
+let alertWindows: BrowserWindow[] = []
 let alertInterval: NodeJS.Timeout | null = null
 let updateDownloaded = false
 let pendingUpdateVersion: string | null = null
@@ -251,92 +251,100 @@ async function manualCheckForUpdates(): Promise<void> {
 
 function showKnockAlert(from: string, fromName: string): void {
   currentAlert = { from, fromName }
-  if (alertWindow && !alertWindow.isDestroyed()) {
-    // Already showing — bump count via IPC
-    alertWindow.webContents.send('knock-again', { from, fromName })
-    alertWindow.focus()
-    alertWindow.moveTop()
+
+  // Se já tem alertas mostrando (de uma chamada anterior), só atualiza o contador
+  if (alertWindows.length > 0) {
+    alertWindows.forEach((w) => {
+      if (!w.isDestroyed()) {
+        w.webContents.send('knock-again', { from, fromName })
+        w.focus()
+        w.moveTop()
+      }
+    })
     return
   }
 
-  const display = screen.getPrimaryDisplay()
-  alertWindow = new BrowserWindow({
-    width: display.bounds.width,
-    height: display.bounds.height,
-    x: display.bounds.x,
-    y: display.bounds.y,
-    show: false,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    // Borrão nativo do SO pra integrar o alerta com o desktop:
-    // - macOS: vibrancy 'fullscreen-ui' (estilo Foco/Stage Manager)
-    // - Windows: backgroundMaterial 'acrylic' (blur Win10+)
-    ...(isMac
-      ? {
-          vibrancy: 'fullscreen-ui' as const,
-          visualEffectState: 'active' as const
-        }
-      : {
-          backgroundMaterial: 'acrylic' as const
-        }),
-    resizable: false,
-    movable: false,
-    skipTaskbar: true,
-    fullscreenable: false,
-    hasShadow: false,
-    alwaysOnTop: true,
-    focusable: true,
-    minimizable: false,
-    maximizable: false,
-    closable: false, // não permite Cmd+W fechar — só clicando no botão
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-      contextIsolation: true
-    }
-  })
-
-  alertWindow.setAlwaysOnTop(true, 'screen-saver')
-  alertWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-
-  // Bloqueia shortcuts comuns que poderiam fechar/minimizar (Cmd+W, Cmd+Q, Cmd+M, ESC)
-  alertWindow.webContents.on('before-input-event', (event, input) => {
-    const isClose =
-      (input.meta || input.control) && ['w', 'q', 'm', 'h'].includes(input.key.toLowerCase())
-    const isEscape = input.key === 'Escape'
-    if (isClose || isEscape) event.preventDefault()
-  })
-
+  const displays = screen.getAllDisplays()
   const baseUrl =
     is.dev && process.env['ELECTRON_RENDERER_URL']
       ? process.env['ELECTRON_RENDERER_URL']
       : `file://${join(__dirname, '../renderer/index.html')}`
-  const params = `from=${encodeURIComponent(from)}&fromName=${encodeURIComponent(fromName)}`
-  alertWindow.loadURL(`${baseUrl}#alert?${params}`)
 
-  alertWindow.once('ready-to-show', () => {
-    alertWindow?.show()
-    alertWindow?.focus()
-    alertWindow?.moveTop()
-  })
+  // Cria 1 janela de alerta por monitor. Só o primeiro toca som (silent=1 nos outros).
+  alertWindows = displays.map((display, idx) => {
+    const win = new BrowserWindow({
+      width: display.bounds.width,
+      height: display.bounds.height,
+      x: display.bounds.x,
+      y: display.bounds.y,
+      show: false,
+      frame: false,
+      transparent: true,
+      backgroundColor: '#00000000',
+      ...(isMac
+        ? {
+            vibrancy: 'fullscreen-ui' as const,
+            visualEffectState: 'active' as const
+          }
+        : {
+            backgroundMaterial: 'acrylic' as const
+          }),
+      resizable: false,
+      movable: false,
+      skipTaskbar: true,
+      fullscreenable: false,
+      hasShadow: false,
+      alwaysOnTop: true,
+      focusable: true,
+      minimizable: false,
+      maximizable: false,
+      closable: false,
+      webPreferences: {
+        preload: join(__dirname, '../preload/index.js'),
+        sandbox: false,
+        contextIsolation: true
+      }
+    })
 
-  alertWindow.on('closed', () => {
-    alertWindow = null
-    stopAlert()
+    win.setAlwaysOnTop(true, 'screen-saver')
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+
+    win.webContents.on('before-input-event', (event, input) => {
+      const isClose =
+        (input.meta || input.control) && ['w', 'q', 'm', 'h'].includes(input.key.toLowerCase())
+      const isEscape = input.key === 'Escape'
+      if (isClose || isEscape) event.preventDefault()
+    })
+
+    const params =
+      `from=${encodeURIComponent(from)}` +
+      `&fromName=${encodeURIComponent(fromName)}` +
+      (idx > 0 ? '&silent=1' : '')
+    win.loadURL(`${baseUrl}#alert?${params}`)
+
+    win.once('ready-to-show', () => {
+      win.show()
+      win.focus()
+      win.moveTop()
+    })
+
+    win.on('closed', () => {
+      alertWindows = alertWindows.filter((w) => w !== win)
+      if (alertWindows.length === 0) stopAlert()
+    })
+
+    return win
   })
 }
 
 function dismissKnockAlert(): void {
-  // Avisa o Receiver popover que o alerta foi reconhecido, com info de quem chamou,
-  // pra ele limpar o estado "pending" e mandar o ack pra Helena via Realtime.
   const ackInfo = currentAlert
   currentAlert = null
-  if (alertWindow && !alertWindow.isDestroyed()) {
-    // .destroy() ignora closable:false (que .close() respeita)
-    alertWindow.destroy()
-  }
-  alertWindow = null
+  // Destrói TODAS as janelas de alerta (uma por monitor)
+  alertWindows.forEach((w) => {
+    if (!w.isDestroyed()) w.destroy()
+  })
+  alertWindows = []
   stopAlert()
   if (ackInfo && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('alert-acknowledged', ackInfo)
