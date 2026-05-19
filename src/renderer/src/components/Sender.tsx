@@ -7,6 +7,7 @@ import {
   findMemberIn
 } from '../lib/team'
 import { joinKnockChannel } from '../lib/supabase'
+import { usePresence } from '../lib/presence'
 import { playSent } from '../lib/sound'
 import { GL } from '../lib/design'
 import { Avatar } from './Avatar'
@@ -32,6 +33,7 @@ export function Sender({ me, team }: Props) {
   const channelRef = useRef<ReturnType<typeof joinKnockChannel> | null>(null)
   const lastKnockAt = useRef<Record<string, number>>({})
   const lastSectorKnockAt = useRef<Record<string, number>>({})
+  const onlineUsers = usePresence(me.id)
   const [hover, setHover] = useState<string | null>(null)
   const [active, setActive] = useState<Set<string>>(new Set())
   const [justSent, setJustSent] = useState<Set<string>>(new Set())
@@ -220,6 +222,7 @@ export function Sender({ me, team }: Props) {
                   const isActive = active.has(m.id)
                   const wasSent = justSent.has(m.id)
                   const ack = acks[m.id]
+                  const isOnline = onlineUsers.has(m.id)
                   return (
                     <button
                       key={m.id}
@@ -300,7 +303,7 @@ export function Sender({ me, team }: Props) {
                           {m.name}
                         </div>
                         <div
-                          className="mt-px font-medium"
+                          className="mt-px font-medium flex items-center gap-1"
                           style={{
                             fontSize: 10.5,
                             color: isActive
@@ -312,13 +315,28 @@ export function Sender({ me, team }: Props) {
                                   : GL.faint
                           }}
                         >
-                          {isActive
-                            ? 'chamando…'
-                            : ack
-                              ? 'tá indo ↗'
-                              : wasSent
-                                ? 'enviado'
-                                : 'online'}
+                          {!isActive && !ack && !wasSent && (
+                            <span
+                              className="inline-block rounded-full"
+                              style={{
+                                width: 5,
+                                height: 5,
+                                background: isOnline ? '#34c759' : 'transparent',
+                                border: isOnline ? 'none' : `1px solid ${GL.faint}`
+                              }}
+                            />
+                          )}
+                          <span>
+                            {isActive
+                              ? 'chamando…'
+                              : ack
+                                ? 'tá indo ↗'
+                                : wasSent
+                                  ? 'enviado'
+                                  : isOnline
+                                    ? 'online'
+                                    : 'offline'}
+                          </span>
                         </div>
                       </div>
                     </button>
