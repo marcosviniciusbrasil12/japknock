@@ -26,6 +26,10 @@ if (isTestMode) {
   app.setPath('userData', process.env.JAPKNOCK_DATA_DIR!)
 }
 
+// Admin escape hatch: só permite quit se JAPKNOCK_ALLOW_QUIT=1 (ou em test mode).
+// Usuário comum não consegue fechar o app — é ferramenta corporativa.
+const allowQuit = isTestMode || process.env.JAPKNOCK_ALLOW_QUIT === '1'
+
 // Single instance lock — só 1 JapKnock por usuário em produção.
 // Em test mode (JAPKNOCK_DATA_DIR setado), pulamos pra permitir múltiplas instâncias paralelas.
 if (!isTestMode) {
@@ -53,6 +57,7 @@ function createWindow(): void {
     height: 520,
     show: false,
     frame: false,
+    closable: allowQuit, // user não consegue fechar via Cmd+W
     ...(isMac
       ? {
           // macOS: NSVisualEffectMaterialPopover — mesmo material usado pelos
@@ -350,18 +355,21 @@ function rebuildTrayMenu(): void {
       ]
     : []
 
+  // App corporativo: sem opção de fechar. Single point of admin escape via env var.
+  const adminQuitItem = allowQuit
+    ? [
+        { type: 'separator' as const },
+        { label: 'Sair (admin)', click: () => app.exit(0) }
+      ]
+    : []
+
   const menu = Menu.buildFromTemplate([
     ...updateMenuItem,
     { label: 'Abrir', click: () => toggleWindow() },
-    { label: 'Limpar alerta', click: () => stopAlert() },
     { type: 'separator' },
     { label: 'Verificar atualizações', click: () => manualCheckForUpdates() },
     { label: `Sobre — JapKnock v${app.getVersion()}`, enabled: false },
-    { type: 'separator' },
-    {
-      label: 'Sair (ferramenta corporativa, abrirá no próximo boot)',
-      click: () => app.quit()
-    }
+    ...adminQuitItem
   ])
   tray?.popUpContextMenu(menu)
 }
@@ -477,6 +485,17 @@ app.on('window-all-closed', () => {
   // Tray-only app: keep running when window hides
 })
 
-app.on('before-quit', () => {
-  stopAlert()
+// App corporativo: bloqueia QUALQUER tentativa de quit que não venha do admin.
+// Sistema de shutdown do SO ainda consegue matar o processo (vai relançar no boot
+// graças ao autostart). Single point of escape: JAPKNOCK_ALLOW_QUIT=1.
+app.on('before-quit', (event) => {
+  if (!allowQuit) {
+    event.preventDefault()
+    console.log('[japknock] quit attempt blocked — ferramenta corporativa')
+  } else {
+    stopAlert()
+  }
 })
+
+// macOS cria um menu padrão com Cmd+Q. Desabilita pra travar essa rota.
+Menu.setApplicationMenu(null)
