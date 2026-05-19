@@ -116,22 +116,21 @@ function createWindow(): void {
 
 function positionWindow(): void {
   if (!mainWindow || !tray) return
-  const trayBounds = tray.getBounds()
   const winBounds = mainWindow.getBounds()
 
   if (isMac) {
-    // Encostado na barra de menu (1px gap só pra não colar de cara)
+    const trayBounds = tray.getBounds()
     const x = Math.round(trayBounds.x + trayBounds.width / 2 - winBounds.width / 2)
     const y = Math.round(trayBounds.y + trayBounds.height + 1)
     mainWindow.setPosition(x, y, false)
   } else {
-    const display = screen.getPrimaryDisplay().workArea
-    const x = trayBounds.x
-      ? Math.max(display.x, trayBounds.x + trayBounds.width / 2 - winBounds.width / 2)
-      : display.x + display.width - winBounds.width - 16
-    const y = trayBounds.y
-      ? Math.max(display.y, trayBounds.y - winBounds.height - 4)
-      : display.y + display.height - winBounds.height - 60
+    // Windows: tray.getBounds() é flaky (overflow, custom taskbar, etc).
+    // Ancora SEMPRE no canto inferior direito do workArea do monitor onde
+    // o cursor tá (= onde o user clicou). workArea já exclui a taskbar.
+    const cursor = screen.getCursorScreenPoint()
+    const display = screen.getDisplayNearestPoint(cursor).workArea
+    const x = display.x + display.width - winBounds.width - 8
+    const y = display.y + display.height - winBounds.height - 8
     mainWindow.setPosition(Math.round(x), Math.round(y), false)
   }
 }
@@ -292,7 +291,8 @@ function showKnockAlert(from: string, fromName: string): void {
       resizable: false,
       movable: false,
       skipTaskbar: true,
-      fullscreenable: false,
+      // Permite fullscreen programático no Windows pra setKiosk funcionar
+      fullscreenable: !isMac,
       hasShadow: false,
       alwaysOnTop: true,
       focusable: true,
@@ -321,6 +321,12 @@ function showKnockAlert(from: string, fromName: string): void {
     }
 
     const win = new BrowserWindow(windowConfig)
+
+    // Windows: kiosk mode garante que a janela cobre TUDO, inclusive a taskbar
+    // que o 'screen-saver' alwaysOnTop não consegue cobrir.
+    if (!isMac) {
+      win.setKiosk(true)
+    }
 
     // setAlwaysOnTop com 'screen-saver' garante que aparece sobre fullscreen apps
     win.setAlwaysOnTop(true, 'screen-saver')
