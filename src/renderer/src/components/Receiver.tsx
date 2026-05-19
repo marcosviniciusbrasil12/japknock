@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { TeamMember, findMember, clearStoredMe } from '../lib/team'
+import { TeamMember, findMemberIn, clearStoredMeId } from '../lib/team'
 import { joinKnockChannel, KnockPayload, fetchRecentKnocksTo } from '../lib/supabase'
 import { GL } from '../lib/design'
 import { Avatar } from './Avatar'
@@ -10,6 +10,7 @@ type KnockEvent = KnockPayload & { fromName: string; fromInitials: string; acked
 
 type Props = {
   me: TeamMember
+  team: TeamMember[]
   onLogout: () => void
 }
 
@@ -36,7 +37,7 @@ const relativeLabel = (ts: number): string => {
   return 'ontem'
 }
 
-export function Receiver({ me, onLogout }: Props) {
+export function Receiver({ me, team, onLogout }: Props) {
   const channelRef = useRef<ReturnType<typeof joinKnockChannel> | null>(null)
   const [status, setStatus] = useState<ConnStatus>('connecting')
   const [recents, setRecents] = useState<KnockEvent[]>([])
@@ -55,7 +56,7 @@ export function Receiver({ me, onLogout }: Props) {
     fetchRecentKnocksTo(me.id, 10).then((rows) => {
       if (cancelled) return
       const mapped: KnockEvent[] = rows.map((r) => {
-        const fm = findMember(r.from_user)
+        const fm = findMemberIn(team, r.from_user)
         return {
           to: r.to_user,
           from: r.from_user,
@@ -100,7 +101,7 @@ export function Receiver({ me, onLogout }: Props) {
     const channel = joinKnockChannel({
       onKnock: (payload) => {
         if (payload.to !== me.id) return
-        const fromMember = findMember(payload.from)
+        const fromMember = findMemberIn(team, payload.from)
         const fromName = fromMember?.name ?? payload.from
         const fromInitials = fromMember?.initials ?? payload.from.slice(0, 2).toUpperCase()
         const event: KnockEvent = { ...payload, fromName, fromInitials }
@@ -139,7 +140,7 @@ export function Receiver({ me, onLogout }: Props) {
   }
 
   const handleLogout = (): void => {
-    clearStoredMe()
+    clearStoredMeId()
     onLogout()
   }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { findMember } from '../lib/team'
+import { fetchTeam, findMemberIn, TeamMember } from '../lib/team'
 import { useSystemTheme } from '../lib/theme'
 import { Avatar } from './Avatar'
 import { playKnock } from '../lib/sound'
@@ -34,7 +34,13 @@ export function AlertOverlay() {
   const [count, setCount] = useState(1)
   const [timeLabel, setTimeLabel] = useState(formatTime())
 
-  const member = findMember(from)
+  // AlertOverlay roda numa janela separada → carrega team direto da DB pra
+  // achar as iniciais (fallback pra slice do nome se não achar).
+  const [team, setTeam] = useState<TeamMember[]>([])
+  useEffect(() => {
+    fetchTeam().then(setTeam)
+  }, [])
+  const member = findMemberIn(team, from)
   const initials = member?.initials ?? fromName.slice(0, 2).toUpperCase()
 
   useEffect(() => {

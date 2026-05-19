@@ -3,9 +3,9 @@ import {
   SECTORS,
   SectorId,
   TeamMember,
-  clearStoredMe,
-  membersOfSector,
-  findMember
+  clearStoredMeId,
+  membersOfSectorIn,
+  findMemberIn
 } from '../lib/team'
 import { joinKnockChannel } from '../lib/supabase'
 import { playSent } from '../lib/sound'
@@ -17,6 +17,7 @@ import { SearchBar } from './SearchBar'
 
 type Props = {
   me: TeamMember
+  team: TeamMember[]
   onLogout: () => void
 }
 
@@ -29,7 +30,7 @@ const norm = (s: string): string =>
 
 const DEBOUNCE_MS = 1500
 
-export function Sender({ me, onLogout }: Props) {
+export function Sender({ me, team, onLogout }: Props) {
   const channelRef = useRef<ReturnType<typeof joinKnockChannel> | null>(null)
   const lastKnockAt = useRef<Record<string, number>>({})
   const lastSectorKnockAt = useRef<Record<string, number>>({})
@@ -72,7 +73,7 @@ export function Sender({ me, onLogout }: Props) {
         /* Helena não recebe knocks */
       },
       onAck: (payload) => {
-        const m = findMember(payload.by)
+        const m = findMemberIn(team, payload.by)
         setAcks((prev) => ({
           ...prev,
           [payload.by]: { byId: payload.by, byName: m?.name ?? payload.by, ts: payload.ts }
@@ -128,21 +129,23 @@ export function Sender({ me, onLogout }: Props) {
     if (now - last < DEBOUNCE_MS) return
     lastSectorKnockAt.current[sectorId] = now
 
-    const members = membersOfSector(sectorId)
+    const members = membersOfSectorIn(team, sectorId)
     members.forEach((m, i) => {
       setTimeout(() => knock(m), i * 80)
     })
   }
 
   const handleLogout = (): void => {
-    clearStoredMe()
+    clearStoredMeId()
     onLogout()
   }
 
   const matchesQuery = (m: TeamMember): boolean =>
     !query || norm(m.name).includes(norm(query))
 
-  const anyMatch = SECTORS.some((s) => membersOfSector(s.id).filter(matchesQuery).length > 0)
+  const anyMatch = SECTORS.some(
+    (s) => membersOfSectorIn(team, s.id).filter(matchesQuery).length > 0
+  )
 
   return (
     <Popover>
@@ -157,10 +160,12 @@ export function Sender({ me, onLogout }: Props) {
 
       <div className="px-2.5 pb-2.5 max-h-[520px] overflow-y-auto">
         {SECTORS.map((sec) => {
-          const members = membersOfSector(sec.id).filter(matchesQuery)
+          const members = membersOfSectorIn(team, sec.id).filter(matchesQuery)
+          // Esconde setor vazio (a não ser que seja busca ativa, pra dar feedback)
+          if (members.length === 0 && !query) return null
           if (query && members.length === 0) return null
 
-          const sectorMembers = membersOfSector(sec.id)
+          const sectorMembers = membersOfSectorIn(team, sec.id)
           const isSectorHover = hoverSector === sec.id
           return (
             <div key={sec.id} className="py-1.5">

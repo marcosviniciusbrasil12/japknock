@@ -1,5 +1,11 @@
-import { useState } from 'react'
-import { TeamMember, getStoredMe } from './lib/team'
+import { useState, useEffect } from 'react'
+import {
+  TeamMember,
+  getStoredMeId,
+  findMemberIn,
+  clearStoredMeId
+} from './lib/team'
+import { useTeam } from './lib/useTeam'
 import { useSystemTheme } from './lib/theme'
 import { useAdminCommands } from './lib/admin'
 import { UserSelect } from './components/UserSelect'
@@ -8,21 +14,46 @@ import { Receiver } from './components/Receiver'
 import { AlertOverlay } from './components/AlertOverlay'
 
 function App() {
-  useSystemTheme() // ouve light/dark do sistema e seta data-theme
+  useSystemTheme()
   const isAlertWindow = window.location.hash.startsWith('#alert')
-  const [me, setMe] = useState<TeamMember | null>(() => getStoredMe())
-  // Escuta comandos remotos do admin (kill/restart/clear/update). null-safe.
+  const { team, loading } = useTeam()
+  const [meId, setMeId] = useState<string | null>(() => getStoredMeId())
+
+  // Sincroniza `me` com mudanças no team (alguém pode ter sido renomeado/movido)
+  const me: TeamMember | null = meId ? findMemberIn(team, meId) ?? null : null
+
+  // Se a pessoa tinha um meId salvo MAS não existe mais na DB (caso o registro
+  // tenha sido apagado), limpa pra forçar re-cadastro.
+  useEffect(() => {
+    if (!loading && meId && !me) {
+      console.warn(`[japknock] usuário ${meId} não existe mais na DB, limpando`)
+      clearStoredMeId()
+      setMeId(null)
+    }
+  }, [loading, meId, me])
+
   useAdminCommands(isAlertWindow ? undefined : me?.id)
 
-  if (isAlertWindow) {
-    return <AlertOverlay />
+  if (isAlertWindow) return <AlertOverlay />
+
+  if (loading) return null // skeleton implícito: janela vazia até carregar (~200ms)
+
+  if (!me) {
+    return (
+      <UserSelect
+        team={team}
+        onPick={(m) => {
+          setMeId(m.id)
+        }}
+      />
+    )
   }
 
-  // A janela em si tem o vibrancy/bg nativo no Mac (ou solid bg no Win).
-  // O conteúdo enche a janela inteira sem margem extra.
-  if (!me) return <UserSelect onPick={setMe} />
-  if (me.role === 'sender') return <Sender me={me} onLogout={() => setMe(null)} />
-  return <Receiver me={me} onLogout={() => setMe(null)} />
+  if (me.role === 'sender') {
+    return <Sender me={me} team={team} onLogout={() => setMeId(null)} />
+  }
+
+  return <Receiver me={me} team={team} onLogout={() => setMeId(null)} />
 }
 
 export default App
