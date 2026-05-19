@@ -248,17 +248,57 @@ async function manualCheckForUpdates(): Promise<void> {
         detail: `Versão atual: ${app.getVersion()}`,
         buttons: ['OK']
       })
+      return
+    }
+    const newVersion = result.updateInfo.version
+    if (newVersion === app.getVersion()) {
+      // mesma versão — não precisa fazer nada
+      return
+    }
+    if (isMac) {
+      // Mac unsigned: auto-install falha por assinatura ad-hoc. Aponta direto
+      // pra download manual no GitHub Releases pra evitar UX de "esperar e
+      // nada acontecer".
+      const r = await dialog.showMessageBox({
+        type: 'info',
+        title: 'Atualização disponível',
+        message: `Nova versão ${newVersion} disponível!`,
+        detail:
+          'No Mac, o JapKnock precisa ser atualizado manualmente:\n\n' +
+          '1. Clique em "Abrir página de download"\n' +
+          '2. Baixe o .dmg e arraste pra Applications (substitui)\n' +
+          '3. Force Quit no JapKnock antigo (Activity Monitor)\n' +
+          '4. Abra o novo em Applications\n' +
+          '5. "Abrir Mesmo Assim" em Privacidade e Segurança',
+        buttons: ['Abrir página de download', 'Mais tarde'],
+        defaultId: 0,
+        cancelId: 1
+      })
+      if (r.response === 0) shell.openExternal(RELEASES_URL)
+    } else {
+      // Windows: download + auto-install silencioso vai rolar via electron-updater
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'JapKnock',
+        message: `Baixando versão ${newVersion}…`,
+        detail:
+          'A atualização vai ser aplicada automaticamente em 5 minutos.\n' +
+          'Você pode continuar usando o app normalmente.',
+        buttons: ['OK']
+      })
     }
   } catch (e) {
-    dialog.showMessageBox({
-      type: 'warning',
-      title: 'JapKnock',
-      message: 'Não foi possível verificar atualizações.',
-      detail: String(e),
-      buttons: ['OK', 'Abrir página de releases']
-    }).then((r) => {
-      if (r.response === 1) shell.openExternal(RELEASES_URL)
-    })
+    dialog
+      .showMessageBox({
+        type: 'warning',
+        title: 'JapKnock',
+        message: 'Não foi possível verificar atualizações.',
+        detail: String(e),
+        buttons: ['OK', 'Abrir página de releases']
+      })
+      .then((r) => {
+        if (r.response === 1) shell.openExternal(RELEASES_URL)
+      })
   }
 }
 
