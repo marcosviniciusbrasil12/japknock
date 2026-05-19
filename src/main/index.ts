@@ -278,25 +278,17 @@ function showKnockAlert(from: string, fromName: string): void {
   // Cria 1 janela de alerta por monitor. Só o primeiro toca som (silent=1 nos outros).
   alertWindows = displays.map((display, idx) => {
     const isPrimary = display.id === screen.getPrimaryDisplay().id
-    const win = new BrowserWindow({
+
+    // CRITICAL: monitor primário usa transparent+vibrancy. Secundário usa SOLID bg
+    // — combinar transparent:true sem vibrancy em monitor secundário crasha o
+    // renderer no Electron 37 + Sequoia (mostra JS source como texto).
+    const windowConfig: Electron.BrowserWindowConstructorOptions = {
       width: display.bounds.width,
       height: display.bounds.height,
       x: display.bounds.x,
       y: display.bounds.y,
       show: false,
       frame: false,
-      transparent: true,
-      backgroundColor: '#00000000',
-      // Vibrancy só no primário — em segundo monitor pode bugar no Electron 37
-      // + macOS Sequoia. Os secundários usam apenas overlay translúcido via CSS.
-      ...(isMac && isPrimary
-        ? {
-            vibrancy: 'fullscreen-ui' as const,
-            visualEffectState: 'active' as const
-          }
-        : !isMac
-          ? { backgroundMaterial: 'acrylic' as const }
-          : {}),
       resizable: false,
       movable: false,
       skipTaskbar: true,
@@ -312,7 +304,23 @@ function showKnockAlert(from: string, fromName: string): void {
         sandbox: false,
         contextIsolation: true
       }
-    })
+    }
+
+    if (isMac && isPrimary) {
+      windowConfig.vibrancy = 'fullscreen-ui'
+      windowConfig.visualEffectState = 'active'
+      windowConfig.transparent = true
+      windowConfig.backgroundColor = '#00000000'
+    } else if (!isMac) {
+      windowConfig.backgroundMaterial = 'acrylic'
+      windowConfig.transparent = true
+      windowConfig.backgroundColor = '#00000000'
+    } else {
+      // Mac secundário: SEM transparent (evita crash), bg solid escuro
+      windowConfig.backgroundColor = '#1a1a1c'
+    }
+
+    const win = new BrowserWindow(windowConfig)
 
     // setAlwaysOnTop com 'screen-saver' garante que aparece sobre fullscreen apps
     win.setAlwaysOnTop(true, 'screen-saver')
