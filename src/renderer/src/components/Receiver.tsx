@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { TeamMember, findMember, clearStoredMe } from '../lib/team'
-import { joinKnockChannel, KnockPayload } from '../lib/supabase'
+import { joinKnockChannel, KnockPayload, fetchRecentKnocksTo } from '../lib/supabase'
 import { GL } from '../lib/design'
 import { Avatar } from './Avatar'
 import { Popover } from './Popover'
 import { PopoverHeader } from './PopoverHeader'
 
-type KnockEvent = KnockPayload & { fromName: string; fromInitials: string }
+type KnockEvent = KnockPayload & { fromName: string; fromInitials: string; ackedAt?: number }
 
 type Props = {
   me: TeamMember
@@ -49,22 +49,52 @@ export function Receiver({ me, onLogout }: Props) {
     return () => clearInterval(i)
   }, [])
 
-  // Escuta quando o usuário clica "Tô indo" no fullscreen AlertOverlay:
-  // - manda o ack pra Helena
-  // - limpa o estado "pending" do popover (senão fica mostrando "X bateu na porta")
+  // Carrega histórico do banco na primeira abertura
+  useEffect(() => {
+    let cancelled = false
+    fetchRecentKnocksTo(me.id, 10).then((rows) => {
+      if (cancelled) return
+      const mapped: KnockEvent[] = rows.map((r) => {
+        const fm = findMember(r.from_user)
+        return {
+          to: r.to_user,
+          from: r.from_user,
+          ts: new Date(r.ts).getTime(),
+          knockId: r.id,
+          fromName: fm?.name ?? r.from_user,
+          fromInitials: fm?.initials ?? r.from_user.slice(0, 2).toUpperCase(),
+          ackedAt: r.acked_at ? new Date(r.acked_at).getTime() : undefined
+        }
+      })
+      setRecents(mapped)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [me.id])
+
+  // Escuta quando o usuário clica "Tô indo" no fullscreen AlertOverlay
   useEffect(() => {
     const off = window.api.onAlertAcknowledged(async ({ from }) => {
+      // Acha o knockId do pending pra mandar o ack pra a row certa
+      const knockId = pending?.knockId
       if (channelRef.current) {
         try {
-          await channelRef.current.sendAck(from, me.id)
+          await channelRef.current.sendAck(from, me.id, knockId)
         } catch (e) {
           console.error('Failed to send ack after alert dismiss', e)
         }
       }
       setPending((curr) => (curr?.from === from ? null : curr))
+      // Marca como acked na lista de recentes
+      setRecents((r) =>
+        r.map((k) =>
+          k.knockId === knockId ? { ...k, ackedAt: Date.now() } : k
+        )
+      )
     })
     return off
-  }, [me.id])
+  }, [me.id, pending])
 
   useEffect(() => {
     const channel = joinKnockChannel({
@@ -75,7 +105,7 @@ export function Receiver({ me, onLogout }: Props) {
         const fromInitials = fromMember?.initials ?? payload.from.slice(0, 2).toUpperCase()
         const event: KnockEvent = { ...payload, fromName, fromInitials }
         setPending(event)
-        setRecents((r) => [event, ...r].slice(0, 5))
+        setRecents((r) => [event, ...r.filter((k) => k.knockId !== event.knockId)].slice(0, 10))
         window.api.showKnockAlert(payload.from, fromName)
         window.api.notify(`${fromName} está te chamando`, 'Bateu na sua porta digital')
       },
@@ -95,10 +125,15 @@ export function Receiver({ me, onLogout }: Props) {
     window.api.dismissKnockAlert()
     if (pending && channelRef.current) {
       try {
-        await channelRef.current.sendAck(pending.from, me.id)
+        await channelRef.current.sendAck(pending.from, me.id, pending.knockId)
       } catch (e) {
         console.error('Failed to send ack', e)
       }
+      setRecents((r) =>
+        r.map((k) =>
+          k.knockId === pending.knockId ? { ...k, ackedAt: Date.now() } : k
+        )
+      )
     }
     setPending(null)
   }

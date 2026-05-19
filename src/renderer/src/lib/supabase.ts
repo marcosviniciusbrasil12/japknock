@@ -1,10 +1,12 @@
 import { createClient, RealtimeChannel } from '@supabase/supabase-js'
 
-const SUPABASE_URL = 'https://tnssxlgwebhppkujqnwb.supabase.co'
+// Supabase de PRODUÇÃO do JAPHub (migrado de dev em v1.0.1)
+const SUPABASE_URL = 'https://fokqgkurdshfygfjntxd.supabase.co'
 const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRuc3N4bGd3ZWJocHBrdWpxbndiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI0MzczMTUsImV4cCI6MjA3ODAxMzMxNX0.PQKRBNEwXcmOm8nr3yUadmNCfjMHUZnuLEN4coUpLlg'
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZva3Fna3VyZHNoZnlnZmpudHhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ1OTg3NzMsImV4cCI6MjA4MDE3NDc3M30.2y4zA1zovJnLiaO6xv8VkeGBqCYcd1HZqAIYjEsTRAM'
 
 const CHANNEL_NAME = 'wall-knock'
+const KNOCKS_TABLE = 'japknock_knocks'
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   realtime: { params: { eventsPerSecond: 5 } }
@@ -14,13 +16,22 @@ export type KnockPayload = {
   to: string
   from: string
   ts: number
+  knockId?: string // uuid da row em japknock_knocks (pra ack atualizar a row certa)
 }
 
 export type AckPayload = {
-  // O receiver (quem recebeu o knock) reconhece pra o sender
-  knocker: string // ID de quem chamou (Helena)
-  by: string // ID de quem reconheceu (Marcos)
+  knocker: string
+  by: string
   ts: number
+  knockId?: string
+}
+
+export type HistoryEntry = {
+  id: string
+  from_user: string
+  to_user: string
+  ts: string
+  acked_at: string | null
 }
 
 export type ChannelCallbacks = {
@@ -29,7 +40,6 @@ export type ChannelCallbacks = {
   onStatus: (status: 'online' | 'connecting' | 'offline') => void
 }
 
-// Backoff: 2s, 5s, 10s, 30s, 60s, 60s, 60s...
 const BACKOFF_MS = [2000, 5000, 10000, 30000, 60000]
 
 class ResilientChannel {
@@ -51,21 +61,47 @@ class ResilientChannel {
     if (this.channel) this.channel.unsubscribe()
   }
 
-  async sendKnock(to: string, from: string): Promise<void> {
+  // Persiste no banco + manda broadcast (instant + history)
+  async sendKnock(to: string, from: string): Promise<string | null> {
+    let knockId: string | null = null
+    try {
+      const { data, error } = await supabase
+        .from(KNOCKS_TABLE)
+        .insert({ from_user: from, to_user: to })
+        .select('id')
+        .single()
+      if (error) console.error('Failed to persist knock', error)
+      else knockId = data?.id ?? null
+    } catch (e) {
+      console.error('DB insert exception', e)
+    }
     if (!this.channel) throw new Error('Channel not ready')
     await this.channel.send({
       type: 'broadcast',
       event: 'knock',
-      payload: { to, from, ts: Date.now() } satisfies KnockPayload
+      payload: { to, from, ts: Date.now(), knockId: knockId ?? undefined } satisfies KnockPayload
     })
+    return knockId
   }
 
-  async sendAck(knocker: string, by: string): Promise<void> {
+  // Marca knock como acked no banco + broadcast pra UI do sender atualizar
+  async sendAck(knocker: string, by: string, knockId?: string): Promise<void> {
+    if (knockId) {
+      try {
+        const { error } = await supabase
+          .from(KNOCKS_TABLE)
+          .update({ acked_at: new Date().toISOString() })
+          .eq('id', knockId)
+        if (error) console.error('Failed to mark ack in DB', error)
+      } catch (e) {
+        console.error('DB update exception', e)
+      }
+    }
     if (!this.channel) throw new Error('Channel not ready')
     await this.channel.send({
       type: 'broadcast',
       event: 'ack',
-      payload: { knocker, by, ts: Date.now() } satisfies AckPayload
+      payload: { knocker, by, ts: Date.now(), knockId } satisfies AckPayload
     })
   }
 
@@ -117,4 +153,22 @@ export const joinKnockChannel = (cb: ChannelCallbacks): ResilientChannel => {
   const r = new ResilientChannel(cb)
   r.start()
   return r
+}
+
+// Histórico dos últimos N knocks recebidos por um usuário
+export const fetchRecentKnocksTo = async (
+  userId: string,
+  limit = 10
+): Promise<HistoryEntry[]> => {
+  const { data, error } = await supabase
+    .from(KNOCKS_TABLE)
+    .select('id, from_user, to_user, ts, acked_at')
+    .eq('to_user', userId)
+    .order('ts', { ascending: false })
+    .limit(limit)
+  if (error) {
+    console.error('fetchRecentKnocksTo failed', error)
+    return []
+  }
+  return data ?? []
 }
