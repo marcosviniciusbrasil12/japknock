@@ -47,6 +47,7 @@ let alertInterval: NodeJS.Timeout | null = null
 let updateDownloaded = false
 let pendingUpdateVersion: string | null = null
 let currentAlert: { from: string; fromName: string } | null = null
+let quittingForUpdate = false // bypass do lockdown quando é update install
 
 const isMac = process.platform === 'darwin'
 const RELEASES_URL = 'https://github.com/marcosviniciusbrasil12/japknock/releases/latest'
@@ -171,13 +172,25 @@ function setupAutoUpdate(): void {
     updateDownloaded = true
     pendingUpdateVersion = info.version
     new Notification({
-      title: 'JapKnock atualizado',
-      body: `Versão ${info.version} pronta. Será instalada quando você sair do app — ou clique aqui pra reiniciar agora.`,
+      title: 'JapKnock vai reiniciar em 5 minutos',
+      body: `Atualizando pra versão ${info.version}. Clique pra reiniciar agora.`,
       silent: true
     })
       .on('click', () => quitAndInstall())
       .show()
     rebuildTrayMenu()
+
+    // Auto-install: 5 minutos após download terminar, força restart silencioso.
+    // Bypassa o before-quit lockdown via flag quittingForUpdate.
+    setTimeout(
+      () => {
+        if (updateDownloaded) {
+          console.log('[updater] grace period over, auto-installing update')
+          quitAndInstall()
+        }
+      },
+      5 * 60 * 1000
+    )
   })
 
   autoUpdater.on('error', (err) => {
@@ -211,6 +224,7 @@ function setupAutoUpdate(): void {
 
 function quitAndInstall(): void {
   if (!updateDownloaded) return
+  quittingForUpdate = true // bypass before-quit lockdown
   autoUpdater.quitAndInstall(false, true)
 }
 
@@ -552,10 +566,10 @@ app.on('window-all-closed', () => {
 })
 
 // App corporativo: bloqueia QUALQUER tentativa de quit que não venha do admin.
-// Sistema de shutdown do SO ainda consegue matar o processo (vai relançar no boot
-// graças ao autostart). Single point of escape: JAPKNOCK_ALLOW_QUIT=1.
+// Exceção: quando o updater tá instalando update novo, deixa quit passar
+// (set via flag quittingForUpdate em quitAndInstall).
 app.on('before-quit', (event) => {
-  if (!allowQuit) {
+  if (!allowQuit && !quittingForUpdate) {
     event.preventDefault()
     console.log('[japknock] quit attempt blocked — ferramenta corporativa')
   } else {
