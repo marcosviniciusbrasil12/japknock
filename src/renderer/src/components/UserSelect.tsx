@@ -1,11 +1,5 @@
 import { useState } from 'react'
-import {
-  SECTORS,
-  SectorId,
-  TeamMember,
-  setStoredMeId,
-  registerUser
-} from '../lib/team'
+import { SECTORS, SectorId, TeamMember, registerUser } from '../lib/team'
 import { GL } from '../lib/design'
 import { Avatar } from './Avatar'
 import { Popover } from './Popover'
@@ -29,7 +23,6 @@ export function UserSelect({ team, onPick }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   const handlePick = (m: TeamMember): void => {
-    setStoredMeId(m.id)
     onPick(m)
   }
 

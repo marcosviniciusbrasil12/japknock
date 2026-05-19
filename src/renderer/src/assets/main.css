@@ -4,6 +4,7 @@
 
 /* ========== Light theme (default) ========== */
 :root {
+  color-scheme: light;
   --jk-ink: #1d1d1f;
   --jk-ink-strong: #000000;
   --jk-muted: rgba(60, 60, 67, 0.65);
@@ -32,6 +33,7 @@
 
 /* ========== Dark theme — system dark mode ========== */
 [data-theme='dark'] {
+  color-scheme: dark;
   --jk-ink: #f5f5f7;
   --jk-ink-strong: #ffffff;
   --jk-muted: rgba(235, 235, 245, 0.62);
