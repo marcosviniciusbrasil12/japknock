@@ -19,7 +19,9 @@ type Props = {
 type View = 'list' | 'register'
 
 export function UserSelect({ team, onPick }: Props) {
-  const [view, setView] = useState<View>(team.length === 0 ? 'register' : 'list')
+  // Default: tela de cadastro (caso comum em roll-out novo). Quem reinstalar
+  // pode clicar "Já tenho cadastro" pra ir pra lista.
+  const [view, setView] = useState<View>('register')
   const [hover, setHover] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [sector, setSector] = useState<SectorId>('inovacao')
@@ -180,38 +182,37 @@ export function UserSelect({ team, onPick }: Props) {
             </div>
           )}
 
-          <div className="flex gap-2 mt-4">
-            {team.length > 0 && (
-              <button
-                onClick={() => setView('list')}
-                className="flex-1 py-2.5 rounded-md font-medium transition-colors"
-                style={{
-                  fontSize: 12,
-                  color: GL.muted,
-                  background: 'transparent',
-                  border: '0.5px solid var(--jk-divider)',
-                  cursor: 'pointer'
-                }}
-              >
-                Voltar
-              </button>
-            )}
+          <button
+            onClick={handleRegister}
+            disabled={submitting || !name.trim()}
+            className="w-full mt-4 py-2.5 rounded-md font-semibold transition-opacity"
+            style={{
+              fontSize: 12.5,
+              color: 'var(--jk-paper)',
+              background: GL.ink,
+              border: 0,
+              cursor: submitting ? 'wait' : 'pointer',
+              opacity: !name.trim() ? 0.4 : 1
+            }}
+          >
+            {submitting ? 'Cadastrando…' : 'Entrar no JapKnock'}
+          </button>
+
+          {team.length > 0 && (
             <button
-              onClick={handleRegister}
-              disabled={submitting || !name.trim()}
-              className="flex-1 py-2.5 rounded-md font-semibold transition-opacity"
+              onClick={() => setView('list')}
+              className="w-full mt-2 py-2 transition-colors"
               style={{
-                fontSize: 12.5,
-                color: 'var(--jk-paper)',
-                background: GL.ink,
+                fontSize: 11,
+                color: GL.faint,
+                background: 'transparent',
                 border: 0,
-                cursor: submitting ? 'wait' : 'pointer',
-                opacity: !name.trim() ? 0.4 : 1
+                cursor: 'pointer'
               }}
             >
-              {submitting ? 'Cadastrando…' : 'Entrar no JapKnock'}
+              Já tenho cadastro (reinstalei o app)
             </button>
-          </div>
+          )}
         </div>
       )}
     </Popover>
