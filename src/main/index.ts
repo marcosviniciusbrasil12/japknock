@@ -270,8 +270,14 @@ function showKnockAlert(from: string, fromName: string): void {
       ? process.env['ELECTRON_RENDERER_URL']
       : `file://${join(__dirname, '../renderer/index.html')}`
 
+  console.log(`[japknock] showKnockAlert: ${displays.length} displays detectados`)
+  displays.forEach((d, i) =>
+    console.log(`  display[${i}]: ${d.bounds.width}x${d.bounds.height}@(${d.bounds.x},${d.bounds.y}) ${d.id === screen.getPrimaryDisplay().id ? '(primary)' : ''}`)
+  )
+
   // Cria 1 janela de alerta por monitor. Só o primeiro toca som (silent=1 nos outros).
   alertWindows = displays.map((display, idx) => {
+    const isPrimary = display.id === screen.getPrimaryDisplay().id
     const win = new BrowserWindow({
       width: display.bounds.width,
       height: display.bounds.height,
@@ -281,14 +287,16 @@ function showKnockAlert(from: string, fromName: string): void {
       frame: false,
       transparent: true,
       backgroundColor: '#00000000',
-      ...(isMac
+      // Vibrancy só no primário — em segundo monitor pode bugar no Electron 37
+      // + macOS Sequoia. Os secundários usam apenas overlay translúcido via CSS.
+      ...(isMac && isPrimary
         ? {
             vibrancy: 'fullscreen-ui' as const,
             visualEffectState: 'active' as const
           }
-        : {
-            backgroundMaterial: 'acrylic' as const
-          }),
+        : !isMac
+          ? { backgroundMaterial: 'acrylic' as const }
+          : {}),
       resizable: false,
       movable: false,
       skipTaskbar: true,
@@ -306,8 +314,10 @@ function showKnockAlert(from: string, fromName: string): void {
       }
     })
 
+    // setAlwaysOnTop com 'screen-saver' garante que aparece sobre fullscreen apps
     win.setAlwaysOnTop(true, 'screen-saver')
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    // NÃO usamos setVisibleOnAllWorkspaces — esse flag mistura Spaces com monitores
+    // e pode fazer a 2ª janela "desaparecer" no setup multi-monitor
 
     win.webContents.on('before-input-event', (event, input) => {
       const isClose =
@@ -316,16 +326,34 @@ function showKnockAlert(from: string, fromName: string): void {
       if (isClose || isEscape) event.preventDefault()
     })
 
+    // Logging de erros do renderer
+    win.webContents.on('render-process-gone', (_e, details) => {
+      console.error(`[japknock] alert renderer gone (display ${idx}):`, details.reason)
+    })
+
     const params =
       `from=${encodeURIComponent(from)}` +
       `&fromName=${encodeURIComponent(fromName)}` +
-      (idx > 0 ? '&silent=1' : '')
+      // Monitor não-primário não toca som E renderiza com bg solid CSS (sem vibrancy)
+      (isPrimary ? '' : '&silent=1&solidBg=1')
     win.loadURL(`${baseUrl}#alert?${params}`)
+    console.log(`[japknock] alert window ${idx} (${isPrimary ? 'primary' : 'secondary'}) loading...`)
+
+    // Fallback: força mostrar após 800ms caso ready-to-show não dispare
+    const showFallback = setTimeout(() => {
+      if (!win.isDestroyed() && !win.isVisible()) {
+        console.warn(`[japknock] alert window ${idx} fallback show (ready-to-show didn't fire)`)
+        win.showInactive()
+        win.moveTop()
+      }
+    }, 800)
 
     win.once('ready-to-show', () => {
+      clearTimeout(showFallback)
       win.show()
-      win.focus()
+      if (isPrimary) win.focus()
       win.moveTop()
+      console.log(`[japknock] alert window ${idx} shown`)
     })
 
     win.on('closed', () => {

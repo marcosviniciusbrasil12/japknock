@@ -5,13 +5,19 @@ import { Avatar } from './Avatar'
 import { playKnock } from '../lib/sound'
 import { GL } from '../lib/design'
 
-function parseHashParams(): { from: string; fromName: string; silent: boolean } {
+function parseHashParams(): {
+  from: string
+  fromName: string
+  silent: boolean
+  solidBg: boolean
+} {
   const hash = window.location.hash.replace(/^#alert\??/, '')
   const params = new URLSearchParams(hash)
   return {
     from: params.get('from') ?? 'helena',
     fromName: params.get('fromName') ?? 'Alguém',
-    silent: params.get('silent') === '1'
+    silent: params.get('silent') === '1',
+    solidBg: params.get('solidBg') === '1'
   }
 }
 
@@ -75,9 +81,12 @@ export function AlertOverlay() {
     <div
       className="fixed inset-0 overflow-hidden"
       style={{
-        // Vibrancy nativa já é aplicada pela janela (fullscreen-ui).
-        // Aqui só adicionamos um leve overlay translúcido pra dar foco no card.
-        background: 'transparent',
+        // Monitor primário: vibrancy nativa já cobre tudo (transparent OK).
+        // Monitor secundário: sem vibrancy, usamos overlay translúcido CSS pra
+        // não ficar uma janela invisível com card flutuando solto.
+        background: initial.solidBg ? 'rgba(0,0,0,.55)' : 'transparent',
+        backdropFilter: initial.solidBg ? 'blur(18px) saturate(180%)' : undefined,
+        WebkitBackdropFilter: initial.solidBg ? 'blur(18px) saturate(180%)' : undefined,
         containerType: 'inline-size',
         cursor: 'default'
       }}
