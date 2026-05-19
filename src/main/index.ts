@@ -360,17 +360,16 @@ function showKnockAlert(from: string, fromName: string): void {
       }
     }
 
-    if (isMac && isPrimary) {
-      windowConfig.vibrancy = 'fullscreen-ui'
-      windowConfig.visualEffectState = 'active'
-      windowConfig.transparent = true
-      windowConfig.backgroundColor = '#00000000'
-    } else if (!isMac) {
+    if (!isMac) {
+      // Windows: backgroundMaterial 'acrylic' tá estável
       windowConfig.backgroundMaterial = 'acrylic'
       windowConfig.transparent = true
       windowConfig.backgroundColor = '#00000000'
     } else {
-      // Mac secundário: SEM transparent (evita crash), bg solid escuro
+      // Mac (TODOS os monitores): bg solid escuro + sem vibrancy/transparent.
+      // Vibrancy 'fullscreen-ui' + transparent no Electron 37 + macOS Sequoia
+      // é instável — às vezes renderiza o JS bundle como texto cru na tela.
+      // CSS backdrop-filter no overlay no renderer dá o efeito de blur.
       windowConfig.backgroundColor = '#1a1a1c'
     }
 

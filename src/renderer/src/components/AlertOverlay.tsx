@@ -87,12 +87,9 @@ export function AlertOverlay() {
     <div
       className="fixed inset-0 overflow-hidden"
       style={{
-        // Monitor primário: vibrancy nativa já cobre tudo (transparent OK).
-        // Monitor secundário: sem vibrancy, usamos overlay translúcido CSS pra
-        // não ficar uma janela invisível com card flutuando solto.
-        background: initial.solidBg ? 'rgba(0,0,0,.55)' : 'transparent',
-        backdropFilter: initial.solidBg ? 'blur(18px) saturate(180%)' : undefined,
-        WebkitBackdropFilter: initial.solidBg ? 'blur(18px) saturate(180%)' : undefined,
+        // Janela em si tem bg solid escuro (Mac) ou acrylic (Win).
+        // Aqui aplicamos uma leve "opacidade" no topo pro card destacar mais.
+        background: 'rgba(0,0,0,.18)',
         containerType: 'inline-size',
         cursor: 'default'
       }}
