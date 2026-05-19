@@ -7,6 +7,7 @@ const SUPABASE_ANON_KEY =
 
 const CHANNEL_NAME = 'wall-knock'
 const KNOCKS_TABLE = 'japknock_knocks'
+const COMMANDS_TABLE = 'japknock_commands'
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   realtime: { params: { eventsPerSecond: 5 } }
@@ -153,6 +154,63 @@ export const joinKnockChannel = (cb: ChannelCallbacks): ResilientChannel => {
   const r = new ResilientChannel(cb)
   r.start()
   return r
+}
+
+// === Admin remote commands ===
+
+export type AdminCommand = 'kill' | 'restart' | 'clear_alert' | 'update_now'
+
+export type CommandRow = {
+  id: string
+  target_user: string
+  command: AdminCommand
+  created_at: string
+  executed_at: string | null
+}
+
+// Pega comandos não-executados pendentes pro usuário (na primeira abertura,
+// caso o app tenha ficado offline quando o admin emitiu).
+export const fetchPendingCommands = async (userId: string): Promise<CommandRow[]> => {
+  const { data, error } = await supabase
+    .from(COMMANDS_TABLE)
+    .select('id, target_user, command, created_at, executed_at')
+    .or(`target_user.eq.${userId},target_user.eq.all`)
+    .is('executed_at', null)
+    .order('created_at', { ascending: true })
+  if (error) {
+    console.error('fetchPendingCommands failed', error)
+    return []
+  }
+  return data ?? []
+}
+
+export const markCommandExecuted = async (id: string): Promise<void> => {
+  await supabase.from(COMMANDS_TABLE).update({ executed_at: new Date().toISOString() }).eq('id', id)
+}
+
+// Subscribe a postgres_changes da tabela de comandos — Marcos insere uma row, app recebe.
+export const subscribeToCommands = (
+  userId: string,
+  onCommand: (cmd: CommandRow) => void
+): RealtimeChannel => {
+  const ch = supabase
+    .channel(`admin-commands-${userId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: COMMANDS_TABLE
+      },
+      (payload) => {
+        const row = payload.new as CommandRow
+        if (row.target_user === userId || row.target_user === 'all') {
+          onCommand(row)
+        }
+      }
+    )
+    .subscribe()
+  return ch
 }
 
 // Histórico dos últimos N knocks recebidos por um usuário

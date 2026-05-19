@@ -30,7 +30,11 @@ const api = {
       cb(data)
     ipcRenderer.on('alert-acknowledged', handler)
     return () => ipcRenderer.removeListener('alert-acknowledged', handler)
-  }
+  },
+  // Admin remote commands
+  adminKill: (): void => ipcRenderer.send('admin-kill'),
+  adminRestart: (): void => ipcRenderer.send('admin-restart'),
+  adminCheckUpdate: (): void => ipcRenderer.send('admin-check-update')
 }
 
 if (process.contextIsolated) {

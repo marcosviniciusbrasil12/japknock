@@ -472,6 +472,22 @@ app.whenReady().then(() => {
 
   ipcMain.handle('get-theme', () => nativeTheme.shouldUseDarkColors)
 
+  // === Admin remote commands ===
+  // Bypassam before-quit handler porque app.exit() ignora before-quit/will-quit.
+  ipcMain.on('admin-kill', () => {
+    console.log('[japknock] admin remote KILL received')
+    app.exit(0)
+  })
+  ipcMain.on('admin-restart', () => {
+    console.log('[japknock] admin remote RESTART received')
+    app.relaunch()
+    app.exit(0)
+  })
+  ipcMain.on('admin-check-update', () => {
+    console.log('[japknock] admin remote UPDATE check received')
+    manualCheckForUpdates()
+  })
+
   ipcMain.on('hide-window', () => mainWindow?.hide())
 
   // Mandatório: app corporativo deve SEMPRE iniciar no boot.

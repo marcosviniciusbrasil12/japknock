@@ -13,6 +13,9 @@ declare global {
       dismissKnockAlert: () => void
       onKnockAgain: (cb: (data: { from: string; fromName: string }) => void) => () => void
       onAlertAcknowledged: (cb: (data: { from: string; fromName: string }) => void) => () => void
+      adminKill: () => void
+      adminRestart: () => void
+      adminCheckUpdate: () => void
     }
   }
 }

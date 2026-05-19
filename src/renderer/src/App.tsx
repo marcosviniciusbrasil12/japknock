@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { TeamMember, getStoredMe } from './lib/team'
 import { useSystemTheme } from './lib/theme'
+import { useAdminCommands } from './lib/admin'
 import { UserSelect } from './components/UserSelect'
 import { Sender } from './components/Sender'
 import { Receiver } from './components/Receiver'
@@ -10,6 +11,8 @@ function App() {
   useSystemTheme() // ouve light/dark do sistema e seta data-theme
   const isAlertWindow = window.location.hash.startsWith('#alert')
   const [me, setMe] = useState<TeamMember | null>(() => getStoredMe())
+  // Escuta comandos remotos do admin (kill/restart/clear/update). null-safe.
+  useAdminCommands(isAlertWindow ? undefined : me?.id)
 
   if (isAlertWindow) {
     return <AlertOverlay />
