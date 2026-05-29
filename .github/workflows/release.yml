@@ -1,0 +1,50 @@
+name: Release
+
+# Dispara ao dar push de uma tag vX.Y.Z. Builda Mac + Windows nativamente
+# (sem wine) e publica no GitHub Releases usando o GITHUB_TOKEN do próprio
+# Actions — nenhum token pessoal precisa ser colado.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # necessário pro electron-builder criar a release
+
+jobs:
+  # Gate: typecheck + smoke tests precisam passar antes de buildar qualquer coisa.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  release:
+    needs: test
+    strategy:
+      fail-fast: false # se o Windows falhar, ainda publica o Mac (e vice-versa)
+      matrix:
+        include:
+          - os: macos-latest
+            script: release:mac
+          - os: windows-latest
+            script: release:win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build & publish (${{ matrix.os }})
+        run: npm run ${{ matrix.script }}
+        env:
+          # electron-builder lê GH_TOKEN pra publicar no GitHub Releases.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
