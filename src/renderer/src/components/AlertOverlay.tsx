@@ -4,22 +4,7 @@ import { useSystemTheme } from '../lib/theme'
 import { Avatar } from './Avatar'
 import { playKnock } from '../lib/sound'
 import { GL } from '../lib/design'
-
-function parseHashParams(): {
-  from: string
-  fromName: string
-  silent: boolean
-  solidBg: boolean
-} {
-  const hash = window.location.hash.replace(/^#alert\??/, '')
-  const params = new URLSearchParams(hash)
-  return {
-    from: params.get('from') ?? 'helena',
-    fromName: params.get('fromName') ?? 'Alguém',
-    silent: params.get('silent') === '1',
-    solidBg: params.get('solidBg') === '1'
-  }
-}
+import { parseAlertParams } from '../lib/alertParams'
 
 const formatTime = (): string => {
   const d = new Date()
@@ -28,7 +13,7 @@ const formatTime = (): string => {
 
 export function AlertOverlay() {
   useSystemTheme() // adapta light/dark
-  const initial = parseHashParams()
+  const initial = parseAlertParams(window.location.hash)
   const [from, setFrom] = useState(initial.from)
   const [fromName, setFromName] = useState(initial.fromName)
   const [count, setCount] = useState(1)

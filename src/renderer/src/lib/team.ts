@@ -1,5 +1,4 @@
-import { supabase } from './supabase'
-import { RealtimeChannel } from '@supabase/supabase-js'
+import { supabase, ResilientSubscription } from './supabase'
 
 export type SectorId =
   | 'inovacao'
@@ -66,14 +65,26 @@ export const fetchTeam = async (): Promise<TeamMember[]> => {
 
 export const subscribeToTeamChanges = (
   onChange: (team: TeamMember[]) => void
-): RealtimeChannel => {
-  return supabase
-    .channel('japknock-users-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: USERS_TABLE }, async () => {
-      const team = await fetchTeam()
-      onChange(team)
-    })
-    .subscribe()
+): ResilientSubscription => {
+  const refresh = async (): Promise<void> => {
+    const next = await fetchTeam()
+    // Não sobrescreve com lista vazia: fetchTeam() retorna [] também em falha
+    // de rede. Em produção a equipe nunca é vazia, então [] = falha → mantém o
+    // que já estava na tela em vez de "sumir" todo mundo.
+    if (next.length > 0) onChange(next)
+  }
+  return new ResilientSubscription({
+    label: 'team-changes',
+    build: () =>
+      supabase
+        .channel('japknock-users-changes')
+        .on('postgres_changes', { event: '*', schema: 'public', table: USERS_TABLE }, () => {
+          refresh()
+        }),
+    // Catch-up: a cada (re)conexão, puxa a lista atual. Pega cadastros que
+    // entraram enquanto o cliente estava offline (postgres_changes não dá replay).
+    onSubscribed: refresh
+  }).start()
 }
 
 // Helpers — recebem o team atual (do estado React) em vez de hardcoded
@@ -88,7 +99,7 @@ export const membersOfSectorIn = (team: TeamMember[], sectorId: SectorId): TeamM
 
 // === Registro de novo usuário ===
 
-const slugify = (name: string): string =>
+export const slugify = (name: string): string =>
   name
     .toLowerCase()
     .normalize('NFD')
@@ -96,8 +107,9 @@ const slugify = (name: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 
-const initialsOf = (name: string): string => {
-  const parts = name.trim().split(/\s+/)
+export const initialsOf = (name: string): string => {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return ''
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }

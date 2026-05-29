@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { TeamMember, findMemberIn } from '../lib/team'
 import { joinKnockChannel, KnockPayload, fetchRecentKnocksTo } from '../lib/supabase'
 import { GL } from '../lib/design'
+import { formatWhen, relativeLabel } from '../lib/time'
 import { Avatar } from './Avatar'
 import { Popover } from './Popover'
 import { PopoverHeader } from './PopoverHeader'
@@ -14,27 +15,6 @@ type Props = {
 }
 
 type ConnStatus = 'online' | 'connecting' | 'offline'
-
-const formatWhen = (ts: number): string => {
-  const d = new Date(ts)
-  const now = Date.now()
-  const diff = now - ts
-  if (diff < 60_000) return `há ${Math.floor(diff / 1000)}s`
-  if (diff < 3_600_000) return `há ${Math.floor(diff / 60_000)} min`
-  const today = new Date()
-  const isToday = d.toDateString() === today.toDateString()
-  if (isToday)
-    return `hoje, ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-  return `${d.getDate()}/${d.getMonth() + 1} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
-}
-
-const relativeLabel = (ts: number): string => {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return 'agora'
-  if (diff < 3_600_000) return `há ${Math.floor(diff / 60_000)}m`
-  if (diff < 86_400_000) return `há ${Math.floor(diff / 3_600_000)}h`
-  return 'ontem'
-}
 
 export function Receiver({ me, team }: Props) {
   const channelRef = useRef<ReturnType<typeof joinKnockChannel> | null>(null)

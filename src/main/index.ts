@@ -332,9 +332,7 @@ function showKnockAlert(from: string, fromName: string): void {
   alertWindows = displays.map((display, idx) => {
     const isPrimary = display.id === screen.getPrimaryDisplay().id
 
-    // CRITICAL: monitor primário usa transparent+vibrancy. Secundário usa SOLID bg
-    // — combinar transparent:true sem vibrancy em monitor secundário crasha o
-    // renderer no Electron 37 + Sequoia (mostra JS source como texto).
+    // Config base da janela de alerta (bg sólido definido abaixo p/ ambos SOs).
     const windowConfig: Electron.BrowserWindowConstructorOptions = {
       width: display.bounds.width,
       height: display.bounds.height,
@@ -360,18 +358,16 @@ function showKnockAlert(from: string, fromName: string): void {
       }
     }
 
-    if (!isMac) {
-      // Windows: backgroundMaterial 'acrylic' tá estável
-      windowConfig.backgroundMaterial = 'acrylic'
-      windowConfig.transparent = true
-      windowConfig.backgroundColor = '#00000000'
-    } else {
-      // Mac (TODOS os monitores): bg solid escuro + sem vibrancy/transparent.
-      // Vibrancy 'fullscreen-ui' + transparent no Electron 37 + macOS Sequoia
-      // é instável — às vezes renderiza o JS bundle como texto cru na tela.
-      // CSS backdrop-filter no overlay no renderer dá o efeito de blur.
-      windowConfig.backgroundColor = '#1a1a1c'
-    }
+    // AMBOS os SOs: bg SOLID escuro, sem transparent/vibrancy/acrylic.
+    // - Windows: transparent + setKiosk (fullscreen) faz o DWM recompositar
+    //   tudo atrás da janela sem parar → a tela "pisca atrás". Acrylic numa
+    //   superfície fullscreen ainda piora (GPU). Sólido = caminho fullscreen
+    //   otimizado = sem flicker.
+    // - Mac: vibrancy 'fullscreen-ui' + transparent no Electron 37 + Sequoia
+    //   é instável — às vezes renderiza o JS bundle como texto cru na tela.
+    // O efeito de blur/glass é feito via CSS no overlay (rgba + card), não
+    // dependia do acrylic nativo.
+    windowConfig.backgroundColor = '#1a1a1c'
 
     const win = new BrowserWindow(windowConfig)
 

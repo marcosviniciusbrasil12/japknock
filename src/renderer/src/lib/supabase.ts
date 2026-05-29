@@ -1,4 +1,5 @@
 import { createClient, RealtimeChannel } from '@supabase/supabase-js'
+import { backoffDelay } from './backoff'
 
 // Supabase de PRODUÇÃO do JAPHub (migrado de dev em v1.0.1)
 const SUPABASE_URL = 'https://fokqgkurdshfygfjntxd.supabase.co'
@@ -41,7 +42,76 @@ export type ChannelCallbacks = {
   onStatus: (status: 'online' | 'connecting' | 'offline') => void
 }
 
-const BACKOFF_MS = [2000, 5000, 10000, 30000, 60000]
+// Wrapper genérico que mantém uma subscription (postgres_changes) VIVA:
+// reconecta com backoff exponencial se a conexão cair e re-sincroniza no
+// reconnect (via onSubscribed). Usado pela sync de equipe e comandos admin —
+// sem isso, uma queda de rede fazia o cliente parar de receber cadastros novos
+// até reiniciar o app.
+export type SubscriptionOpts = {
+  label: string
+  build: () => RealtimeChannel // cria o channel com os .on(...) já anexados (sem subscribe)
+  onSubscribed?: () => void // chamado a cada (re)conexão bem-sucedida — bom p/ catch-up
+}
+
+export class ResilientSubscription {
+  private channel: RealtimeChannel | null = null
+  private retryCount = 0
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private cancelled = false
+
+  constructor(private opts: SubscriptionOpts) {}
+
+  start(): this {
+    this.cancelled = false
+    this.connect()
+    return this
+  }
+
+  unsubscribe(): void {
+    this.cancelled = true
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    if (this.channel) {
+      try {
+        this.channel.unsubscribe()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private connect(): void {
+    if (this.cancelled) return
+    const ch = this.opts.build()
+    ch.subscribe((status, err) => {
+      console.log(`[japknock] ${this.opts.label} status:`, status, err ? `err=${err.message}` : '')
+      if (status === 'SUBSCRIBED') {
+        this.retryCount = 0
+        this.opts.onSubscribed?.()
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        if (this.channel === ch) this.scheduleRetry()
+      }
+    })
+    this.channel = ch
+  }
+
+  private scheduleRetry(): void {
+    if (this.cancelled) return
+    const delay = backoffDelay(this.retryCount)
+    this.retryCount++
+    console.log(`[japknock] ${this.opts.label} retry in ${delay}ms (attempt ${this.retryCount})`)
+    if (this.retryTimer) clearTimeout(this.retryTimer)
+    this.retryTimer = setTimeout(() => {
+      if (this.channel) {
+        try {
+          this.channel.unsubscribe()
+        } catch {
+          /* ignore */
+        }
+      }
+      this.connect()
+    }, delay)
+  }
+}
 
 class ResilientChannel {
   private channel: RealtimeChannel | null = null
@@ -133,7 +203,7 @@ class ResilientChannel {
 
   private scheduleRetry(): void {
     if (this.cancelled) return
-    const delay = BACKOFF_MS[Math.min(this.retryCount, BACKOFF_MS.length - 1)]
+    const delay = backoffDelay(this.retryCount)
     this.retryCount++
     console.log(`[japknock] retry in ${delay}ms (attempt ${this.retryCount})`)
     if (this.retryTimer) clearTimeout(this.retryTimer)
@@ -189,29 +259,30 @@ export const markCommandExecuted = async (id: string): Promise<void> => {
 }
 
 // Subscribe a postgres_changes da tabela de comandos — Marcos insere uma row, app recebe.
+// Resiliente: reconecta com backoff se a conexão cair (senão um kill/restart
+// remoto poderia não chegar no cliente que mais precisa ser controlado).
 export const subscribeToCommands = (
   userId: string,
   onCommand: (cmd: CommandRow) => void
-): RealtimeChannel => {
-  const ch = supabase
-    .channel(`admin-commands-${userId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: 'INSERT',
-        schema: 'public',
-        table: COMMANDS_TABLE
-      },
-      (payload) => {
-        const row = payload.new as CommandRow
-        if (row.target_user === userId || row.target_user === 'all') {
-          onCommand(row)
+): ResilientSubscription =>
+  new ResilientSubscription({
+    label: `admin-commands-${userId}`,
+    build: () =>
+      supabase.channel(`admin-commands-${userId}`).on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: COMMANDS_TABLE
+        },
+        (payload) => {
+          const row = payload.new as CommandRow
+          if (row.target_user === userId || row.target_user === 'all') {
+            onCommand(row)
+          }
         }
-      }
-    )
-    .subscribe()
-  return ch
-}
+      )
+  }).start()
 
 // Histórico dos últimos N knocks recebidos por um usuário
 export const fetchRecentKnocksTo = async (
