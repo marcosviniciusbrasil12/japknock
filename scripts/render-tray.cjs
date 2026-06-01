@@ -62,8 +62,10 @@ cw, ch = content.size
 side = max(cw, ch)
 canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
 canvas.paste(content, ((side - cw) // 2, (side - ch) // 2), content)
-# Adiciona pequena margem de 8% pra não ficar grudado nas bordas
-padded_side = int(side * 1.16)
+# Margem de respiro: glifo ocupa ~71% do canvas (padrão de ícone de menu bar
+# do macOS, ~16px num slot de 22px). Antes era 1.16 (~86%): grande demais e
+# colado nas bordas em relação aos ícones vizinhos.
+padded_side = int(side * 1.40)
 padded = Image.new("RGBA", (padded_side, padded_side), (0, 0, 0, 0))
 off = (padded_side - side) // 2
 padded.paste(canvas, (off, off), canvas)
