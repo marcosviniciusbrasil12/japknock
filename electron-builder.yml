@@ -37,6 +37,11 @@ portable:
   artifactName: JapKnock-${version}-portable.${ext}
 mac:
   category: public.app-category.productivity
+  # App de bandeja (menu bar) — nunca aparece no Dock nem no Cmd+Tab, nem no
+  # flash de boot. Complementa o app.dock.hide() em runtime, eliminando o
+  # ícone que piscava no Dock durante a inicialização.
+  extendInfo:
+    LSUIElement: true
   target:
     - target: dmg
       arch:
