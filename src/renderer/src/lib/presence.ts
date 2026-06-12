@@ -29,7 +29,12 @@ export function usePresence(meId: string | undefined): Set<string> {
     })
 
     return () => {
-      channel.unsubscribe()
+      // removeChannel (não unsubscribe): tira o canal da lista do client na
+      // hora. unsubscribe() deixa o canal "leaving" na lista até o ack do
+      // servidor, e um remount imediato (ex: troca Sender↔Receiver) herdaria
+      // essa instância morta — subscribe() viraria no-op e o track() nunca
+      // rodaria (presença silenciosamente quebrada até reiniciar).
+      supabase.removeChannel(channel)
     }
   }, [meId])
 

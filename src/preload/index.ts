@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 const api = {
   platform: process.platform as NodeJS.Platform,
   getTheme: (): Promise<boolean> => ipcRenderer.invoke('get-theme'),
+  getVersion: (): Promise<string> => ipcRenderer.invoke('get-version'),
   onThemeChange: (cb: (isDark: boolean) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, isDark: boolean): void => cb(isDark)
     ipcRenderer.on('theme-changed', handler)
@@ -23,9 +24,7 @@ const api = {
     ipcRenderer.on('knock-again', handler)
     return () => ipcRenderer.removeListener('knock-again', handler)
   },
-  onAlertAcknowledged: (
-    cb: (data: { from: string; fromName: string }) => void
-  ): (() => void) => {
+  onAlertAcknowledged: (cb: (data: { from: string; fromName: string }) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: { from: string; fromName: string }) =>
       cb(data)
     ipcRenderer.on('alert-acknowledged', handler)

@@ -23,7 +23,10 @@ export function AlertOverlay() {
   // achar as iniciais (fallback pra slice do nome se não achar).
   const [team, setTeam] = useState<TeamMember[]>([])
   useEffect(() => {
-    fetchTeam().then(setTeam)
+    // fetchTeam retorna null em falha de rede — mantém o fallback de iniciais
+    fetchTeam().then((t) => {
+      if (t) setTeam(t)
+    })
   }, [])
   const member = findMemberIn(team, from)
   const initials = member?.initials ?? fromName.slice(0, 2).toUpperCase()
@@ -132,8 +135,7 @@ export function AlertOverlay() {
             background: 'var(--jk-card-bg)',
             borderRadius: '2.4cqi',
             border: '0.5px solid var(--jk-divider)',
-            boxShadow:
-              '0 4cqi 8cqi -2cqi rgba(0,0,0,.35), 0 1.4cqi 3.6cqi -1cqi rgba(0,0,0,.22)',
+            boxShadow: '0 4cqi 8cqi -2cqi rgba(0,0,0,.35), 0 1.4cqi 3.6cqi -1cqi rgba(0,0,0,.22)',
             animation: 'jk-scale-in .4s cubic-bezier(.2,1.2,.4,1)'
           }}
         >

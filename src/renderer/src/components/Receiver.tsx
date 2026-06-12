@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { TeamMember, findMemberIn } from '../lib/team'
 import { joinKnockChannel, KnockPayload, fetchRecentKnocksTo } from '../lib/supabase'
+import { usePresence } from '../lib/presence'
 import { GL } from '../lib/design'
 import { formatWhen, relativeLabel } from '../lib/time'
 import { Avatar } from './Avatar'
@@ -22,6 +23,15 @@ export function Receiver({ me, team }: Props) {
   const [recents, setRecents] = useState<KnockEvent[]>([])
   const [pending, setPending] = useState<KnockEvent | null>(null)
   const [, setTick] = useState(0) // forces re-render pra atualizar "há Xs"
+  const [version, setVersion] = useState('')
+
+  // Anuncia presença no canal — sem isso a Helena vê todo mundo "offline"
+  // pra sempre (o track() só acontecia no Sender).
+  usePresence(me.id)
+
+  useEffect(() => {
+    window.api.getVersion().then(setVersion)
+  }, [])
 
   // Re-render a cada 10s pra atualizar timestamps relativos
   useEffect(() => {
@@ -67,11 +77,7 @@ export function Receiver({ me, team }: Props) {
       }
       setPending((curr) => (curr?.from === from ? null : curr))
       // Marca como acked na lista de recentes
-      setRecents((r) =>
-        r.map((k) =>
-          k.knockId === knockId ? { ...k, ackedAt: Date.now() } : k
-        )
-      )
+      setRecents((r) => r.map((k) => (k.knockId === knockId ? { ...k, ackedAt: Date.now() } : k)))
     })
     return off
   }, [me.id, pending])
@@ -110,19 +116,17 @@ export function Receiver({ me, team }: Props) {
         console.error('Failed to send ack', e)
       }
       setRecents((r) =>
-        r.map((k) =>
-          k.knockId === pending.knockId ? { ...k, ackedAt: Date.now() } : k
-        )
+        r.map((k) => (k.knockId === pending.knockId ? { ...k, ackedAt: Date.now() } : k))
       )
     }
     setPending(null)
   }
 
-
   // INCOMING: chamada não-reconhecida → mostra "X bateu na porta"
   if (pending) {
-    const count = recents.filter((r) => r.from === pending.from && Date.now() - r.ts < 30_000)
-      .length
+    const count = recents.filter(
+      (r) => r.from === pending.from && Date.now() - r.ts < 30_000
+    ).length
     return (
       <Popover>
         <PopoverHeader me={me} status={status} subtitle="chamada recebida" />
@@ -186,7 +190,9 @@ export function Receiver({ me, team }: Props) {
               fontSize: 14,
               letterSpacing: '-.005em',
               background: GL.ink,
-              color: '#fff',
+              // GL.paper (não '#fff'): no dark mode o ink vira quase-branco e
+              // texto branco hardcoded sumia no botão
+              color: GL.paper,
               border: 0,
               borderRadius: 8,
               cursor: 'pointer'
@@ -200,7 +206,7 @@ export function Receiver({ me, team }: Props) {
           className="flex items-center justify-center uppercase"
           style={{
             padding: '8px 14px 9px',
-            borderTop: '0.5px solid var(--gl-divider)',
+            borderTop: '0.5px solid var(--jk-divider)',
             fontSize: 10,
             color: GL.faint,
             fontWeight: 500,
@@ -229,15 +235,11 @@ export function Receiver({ me, team }: Props) {
               width: 10,
               height: 10,
               background: '#34c759',
-              boxShadow:
-                '0 0 0 2px var(--gl-paper-solid), 0 0 6px rgba(52,199,89,.4)'
+              boxShadow: '0 0 0 2px var(--jk-paper), 0 0 6px rgba(52,199,89,.4)'
             }}
           />
         </div>
-        <div
-          className="font-bold"
-          style={{ fontSize: 18, marginTop: 14, letterSpacing: '-.02em' }}
-        >
+        <div className="font-bold" style={{ fontSize: 18, marginTop: 14, letterSpacing: '-.02em' }}>
           Tudo quieto.
         </div>
         <div style={{ fontSize: 12, color: GL.muted, marginTop: 4, lineHeight: 1.4 }}>
@@ -260,7 +262,10 @@ export function Receiver({ me, team }: Props) {
           </div>
           <div className="flex flex-col gap-px">
             {recents.map((r, i) => (
-              <div key={`${r.ts}-${i}`} className="flex items-center gap-2.5 px-1.5 py-2 rounded-md">
+              <div
+                key={`${r.ts}-${i}`}
+                className="flex items-center gap-2.5 px-1.5 py-2 rounded-md"
+              >
                 <Avatar
                   member={{
                     id: r.from,
@@ -282,10 +287,7 @@ export function Receiver({ me, team }: Props) {
                     {formatWhen(r.ts)}
                   </div>
                 </div>
-                <span
-                  className="font-medium"
-                  style={{ fontSize: 10, color: GL.faint }}
-                >
+                <span className="font-medium" style={{ fontSize: 10, color: GL.faint }}>
                   {relativeLabel(r.ts)}
                 </span>
               </div>
@@ -298,13 +300,13 @@ export function Receiver({ me, team }: Props) {
         className="flex items-center justify-between font-medium"
         style={{
           padding: '8px 14px 9px',
-          borderTop: '0.5px solid var(--gl-divider)',
+          borderTop: '0.5px solid var(--jk-divider)',
           fontSize: 10,
           color: GL.faint
         }}
       >
         <span>rodando em segundo plano</span>
-        <span>v 1.0</span>
+        <span>{version ? `v ${version}` : ''}</span>
       </div>
     </Popover>
   )

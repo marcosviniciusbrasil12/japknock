@@ -1,12 +1,6 @@
 import { supabase, ResilientSubscription } from './supabase'
 
-export type SectorId =
-  | 'inovacao'
-  | 'financeiro'
-  | 'contabil'
-  | 'infra'
-  | 'marketing'
-  | 'rh'
+export type SectorId = 'inovacao' | 'financeiro' | 'contabil' | 'infra' | 'marketing' | 'rh'
 
 export type Sector = {
   id: SectorId
@@ -50,17 +44,26 @@ const fromDb = (u: DbUser): TeamMember => ({
   sector: u.sector
 })
 
-export const fetchTeam = async (): Promise<TeamMember[]> => {
-  const { data, error } = await supabase
-    .from(USERS_TABLE)
-    .select('user_id, name, initials, role, sector')
-    .order('role', { ascending: true }) // sender primeiro
-    .order('name', { ascending: true })
-  if (error) {
-    console.error('fetchTeam failed', error)
-    return []
+// Retorna null em falha (rede/permissão) — diferente de [] (equipe vazia de
+// verdade). Quem consome NUNCA deve tratar null como "usuário não existe":
+// apagar identidade local por causa de um erro de rede era o bug que deixava
+// a máquina surda pra sempre (boot antes do Wi-Fi conectar).
+export const fetchTeam = async (): Promise<TeamMember[] | null> => {
+  try {
+    const { data, error } = await supabase
+      .from(USERS_TABLE)
+      .select('user_id, name, initials, role, sector')
+      .order('role', { ascending: true }) // sender primeiro
+      .order('name', { ascending: true })
+    if (error) {
+      console.error('fetchTeam failed', error)
+      return null
+    }
+    return (data ?? []).map(fromDb)
+  } catch (e) {
+    console.error('fetchTeam exception', e)
+    return null
   }
-  return (data ?? []).map(fromDb)
 }
 
 export const subscribeToTeamChanges = (
@@ -68,10 +71,9 @@ export const subscribeToTeamChanges = (
 ): ResilientSubscription => {
   const refresh = async (): Promise<void> => {
     const next = await fetchTeam()
-    // Não sobrescreve com lista vazia: fetchTeam() retorna [] também em falha
-    // de rede. Em produção a equipe nunca é vazia, então [] = falha → mantém o
-    // que já estava na tela em vez de "sumir" todo mundo.
-    if (next.length > 0) onChange(next)
+    // null = falha de rede; [] não acontece em produção (helena é seed
+    // permanente). Só propaga lista real pra não "sumir" todo mundo da tela.
+    if (next && next.length > 0) onChange(next)
   }
   return new ResilientSubscription({
     label: 'team-changes',
@@ -114,10 +116,7 @@ export const initialsOf = (name: string): string => {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-export const registerUser = async (
-  name: string,
-  sector: SectorId
-): Promise<TeamMember | null> => {
+export const registerUser = async (name: string, sector: SectorId): Promise<TeamMember | null> => {
   const baseId = slugify(name)
   if (!baseId) return null
 

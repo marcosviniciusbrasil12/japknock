@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  SECTORS,
-  SectorId,
-  TeamMember,
-  membersOfSectorIn,
-  findMemberIn
-} from '../lib/team'
+import { SECTORS, SectorId, TeamMember, membersOfSectorIn, findMemberIn } from '../lib/team'
 import { joinKnockChannel } from '../lib/supabase'
 import { usePresence } from '../lib/presence'
 import { playSent } from '../lib/sound'
@@ -24,8 +18,7 @@ type ConnStatus = 'online' | 'connecting' | 'offline'
 
 type AckInfo = { byId: string; byName: string; ts: number }
 
-const norm = (s: string): string =>
-  s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+const norm = (s: string): string => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
 const DEBOUNCE_MS = 1500
 
@@ -135,9 +128,7 @@ export function Sender({ me, team }: Props) {
     })
   }
 
-
-  const matchesQuery = (m: TeamMember): boolean =>
-    !query || norm(m.name).includes(norm(query))
+  const matchesQuery = (m: TeamMember): boolean => !query || norm(m.name).includes(norm(query))
 
   const anyMatch = SECTORS.some(
     (s) => membersOfSectorIn(team, s.id).filter(matchesQuery).length > 0
@@ -175,7 +166,7 @@ export function Sender({ me, team }: Props) {
                 >
                   {sec.name}
                 </span>
-                <span className="flex-1 h-px" style={{ background: 'var(--gl-divider)' }} />
+                <span className="flex-1 h-px" style={{ background: 'var(--jk-divider)' }} />
                 <button
                   onClick={() => knockSector(sec.id)}
                   onMouseEnter={() => setHoverSector(sec.id)}
@@ -200,10 +191,7 @@ export function Sender({ me, team }: Props) {
                       d="M2.5 7v2c0 .55.45 1 1 1h.5l2 3 .5-.5V4.5L6 4l-2 3h-.5c-.55 0-1 .45-1 1z"
                       fill="currentColor"
                     />
-                    <path
-                      d="M8.5 4L13 2v12L8.5 12V4z"
-                      fill="currentColor"
-                    />
+                    <path d="M8.5 4L13 2v12L8.5 12V4z" fill="currentColor" />
                     <path
                       d="M14 6c.55.45.95 1.15.95 2s-.4 1.55-.95 2"
                       stroke="currentColor"
@@ -232,8 +220,7 @@ export function Sender({ me, team }: Props) {
                       disabled={status !== 'online'}
                       className="relative flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{
-                        background:
-                          isHover || isActive ? 'rgba(0,0,0,.05)' : 'transparent',
+                        background: isHover || isActive ? 'rgba(0,0,0,.05)' : 'transparent',
                         border: 0,
                         cursor: status === 'online' ? 'pointer' : 'not-allowed'
                       }}
@@ -273,8 +260,7 @@ export function Sender({ me, team }: Props) {
                               width: 15,
                               height: 15,
                               background: ack ? '#0a84ff' : '#34c759',
-                              boxShadow:
-                                '0 0 0 1.5px var(--gl-paper-solid), 0 1px 2px rgba(0,0,0,.2)'
+                              boxShadow: '0 0 0 1.5px var(--jk-paper), 0 1px 2px rgba(0,0,0,.2)'
                             }}
                           >
                             <svg width="8" height="8" viewBox="0 0 9 9" fill="none">

@@ -52,6 +52,21 @@ let quittingForUpdate = false // bypass do lockdown quando é update install
 const isMac = process.platform === 'darwin'
 const RELEASES_URL = 'https://github.com/marcosviniciusbrasil12/japknock/releases/latest'
 
+// Windows: AUMID precisa casar com o appId do electron-builder, senão os toasts
+// (new Notification) não aparecem em build NSIS.
+if (!isMac) {
+  app.setAppUserModelId('br.com.japura.japknock')
+}
+
+// backgroundMaterial 'acrylic' só existe no Windows 11 22H2+ (build 22621).
+// Em Win10/Win11 antigo a opção é ignorada e a janela transparente ficaria sem
+// fundo nenhum (texto flutuando sobre o desktop) — nesses casos caímos pra
+// janela sólida que acompanha o tema (ver broadcastTheme).
+const winSupportsAcrylic =
+  !isMac && Number(process.getSystemVersion().split('.')[2] ?? '0') >= 22621
+
+const solidPopoverColor = (): string => (nativeTheme.shouldUseDarkColors ? '#1d1d1f' : '#ffffff')
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 360,
@@ -69,13 +84,18 @@ function createWindow(): void {
           backgroundColor: '#00000000',
           roundedCorners: true
         }
-      : {
-          // Windows: 'acrylic' (Win10+) ou 'mica' (Win11). Acrylic dá um glass
-          // similar ao macOS, transparent + bg 0 são obrigatórios pra funcionar.
-          backgroundMaterial: 'acrylic' as const,
-          transparent: true,
-          backgroundColor: '#00000000'
-        }),
+      : winSupportsAcrylic
+        ? {
+            // Windows 11 22H2+: acrylic dá um glass similar ao macOS,
+            // transparent + bg 0 são obrigatórios pra funcionar.
+            backgroundMaterial: 'acrylic' as const,
+            transparent: true,
+            backgroundColor: '#00000000'
+          }
+        : {
+            // Win10/Win11 antigo: sem acrylic — fundo sólido que segue o tema
+            backgroundColor: solidPopoverColor()
+          }),
     hasShadow: true,
     fullscreenable: false,
     resizable: false,
@@ -93,6 +113,10 @@ function createWindow(): void {
   // Notifica o renderer sobre mudanças de tema (light/dark) do sistema
   const broadcastTheme = (): void => {
     mainWindow?.webContents.send('theme-changed', nativeTheme.shouldUseDarkColors)
+    // Janela sólida (Win10) precisa trocar a cor de fundo junto com o tema
+    if (!isMac && !winSupportsAcrylic) {
+      mainWindow?.setBackgroundColor(solidPopoverColor())
+    }
   }
   nativeTheme.on('updated', broadcastTheme)
   mainWindow.on('closed', () => {
@@ -178,7 +202,9 @@ function setupAutoUpdate(): void {
     })
       .on('click', () => quitAndInstall())
       .show()
-    rebuildTrayMenu()
+    // NÃO chamar showTrayMenu() aqui: ela EXIBE o menu (popUpContextMenu), não
+    // só o reconstrói — abriria o menu de contexto sozinho na posição do mouse.
+    // O item "Reiniciar e atualizar" entra naturalmente no próximo right-click.
 
     // Auto-install: 5 minutos após download terminar, força restart silencioso.
     // Bypassa o before-quit lockdown via flag quittingForUpdate.
@@ -325,7 +351,9 @@ function showKnockAlert(from: string, fromName: string): void {
 
   console.log(`[japknock] showKnockAlert: ${displays.length} displays detectados`)
   displays.forEach((d, i) =>
-    console.log(`  display[${i}]: ${d.bounds.width}x${d.bounds.height}@(${d.bounds.x},${d.bounds.y}) ${d.id === screen.getPrimaryDisplay().id ? '(primary)' : ''}`)
+    console.log(
+      `  display[${i}]: ${d.bounds.width}x${d.bounds.height}@(${d.bounds.x},${d.bounds.y}) ${d.id === screen.getPrimaryDisplay().id ? '(primary)' : ''}`
+    )
   )
 
   // Cria 1 janela de alerta por monitor. Só o primeiro toca som (silent=1 nos outros).
@@ -400,7 +428,9 @@ function showKnockAlert(from: string, fromName: string): void {
       // Monitor não-primário não toca som E renderiza com bg solid CSS (sem vibrancy)
       (isPrimary ? '' : '&silent=1&solidBg=1')
     win.loadURL(`${baseUrl}#alert?${params}`)
-    console.log(`[japknock] alert window ${idx} (${isPrimary ? 'primary' : 'secondary'}) loading...`)
+    console.log(
+      `[japknock] alert window ${idx} (${isPrimary ? 'primary' : 'secondary'}) loading...`
+    )
 
     // Fallback: força mostrar após 800ms caso ready-to-show não dispare
     const showFallback = setTimeout(() => {
@@ -442,7 +472,10 @@ function dismissKnockAlert(): void {
   }
 }
 
-function rebuildTrayMenu(): void {
+// Constrói o menu na hora e EXIBE no cursor — só chamar em interação do usuário
+// (right-click no tray). Não usamos tray.setContextMenu porque no macOS isso
+// sequestraria o left-click (que é o toggle do popover).
+function showTrayMenu(): void {
   if (!tray) return
   const updateMenuItem = updateDownloaded
     ? [
@@ -456,10 +489,7 @@ function rebuildTrayMenu(): void {
 
   // App corporativo: sem opção de fechar. Single point of admin escape via env var.
   const adminQuitItem = allowQuit
-    ? [
-        { type: 'separator' as const },
-        { label: 'Sair (admin)', click: () => app.exit(0) }
-      ]
+    ? [{ type: 'separator' as const }, { label: 'Sair (admin)', click: () => app.exit(0) }]
     : []
 
   const menu = Menu.buildFromTemplate([
@@ -502,7 +532,24 @@ function stopAlert(): void {
 }
 
 function buildTrayImage(): Electron.NativeImage {
-  // Use the macOS template glyph (black + alpha) so the system can tint it
+  // Windows/Linux: o glifo template do macOS é preto+alpha — setTemplateImage é
+  // no-op fora do Mac e a taskbar escura deixaria o ícone invisível. Usa o
+  // ícone colorido do app, com representação 2x pra HiDPI.
+  if (!isMac) {
+    const base = nativeImage.createFromPath(icon)
+    const img = nativeImage.createEmpty()
+    img.addRepresentation({
+      scaleFactor: 1,
+      buffer: base.resize({ width: 16, height: 16, quality: 'best' }).toPNG()
+    })
+    img.addRepresentation({
+      scaleFactor: 2,
+      buffer: base.resize({ width: 32, height: 32, quality: 'best' }).toPNG()
+    })
+    return img
+  }
+
+  // macOS: template glyph (black + alpha) so the system can tint it
   // automatically for light/dark menu bars.
   const img = nativeImage.createFromPath(trayTemplate)
   if (img.isEmpty()) {
@@ -544,7 +591,7 @@ app.whenReady().then(() => {
     toggleWindow()
   })
 
-  tray.on('right-click', () => rebuildTrayMenu())
+  tray.on('right-click', () => showTrayMenu())
 
   ipcMain.handle('notify', (_event, { title, body }: { title: string; body: string }) => {
     new Notification({ title, body, silent: true }).show()
@@ -570,6 +617,8 @@ app.whenReady().then(() => {
   ipcMain.handle('get-autostart', () => app.getLoginItemSettings().openAtLogin)
 
   ipcMain.handle('get-theme', () => nativeTheme.shouldUseDarkColors)
+
+  ipcMain.handle('get-version', () => app.getVersion())
 
   // === Admin remote commands ===
   // Bypassam before-quit handler porque app.exit() ignora before-quit/will-quit.

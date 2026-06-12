@@ -3,6 +3,7 @@ declare global {
     api: {
       platform: NodeJS.Platform
       getTheme: () => Promise<boolean>
+      getVersion: () => Promise<string>
       onThemeChange: (cb: (isDark: boolean) => void) => () => void
       notify: (title: string, body: string) => Promise<void>
       clearAlert: () => void
