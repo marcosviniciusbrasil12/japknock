@@ -29,14 +29,18 @@ import {
   findMemberIn,
   receiversOf,
   membersOfSectorIn,
+  sectorsVisibleTo,
   registerUser,
+  SECTORS,
   TeamMember
 } from './team'
 
 const team: TeamMember[] = [
   { id: 'helena', name: 'Helena', role: 'sender', initials: 'HE', sector: null },
   { id: 'marcos', name: 'Marcos', role: 'receiver', initials: 'MA', sector: 'infra' },
-  { id: 'maira', name: 'Maira', role: 'receiver', initials: 'MA', sector: 'rh' }
+  { id: 'maira', name: 'Maira', role: 'receiver', initials: 'MA', sector: 'rh' },
+  { id: 'rejane', name: 'Rejane', role: 'manager', initials: 'RE', sector: 'financeiro' },
+  { id: 'paulo', name: 'Paulo', role: 'receiver', initials: 'PA', sector: 'financeiro' }
 ]
 
 describe('slugify', () => {
@@ -72,14 +76,44 @@ describe('findMemberIn / receiversOf / membersOfSectorIn', () => {
     expect(findMemberIn(team, 'marcos')?.name).toBe('Marcos')
     expect(findMemberIn(team, 'fantasma')).toBeUndefined()
   })
-  it('receiversOf exclui o sender', () => {
+  it('receiversOf exclui sender e manager', () => {
     const r = receiversOf(team)
-    expect(r.map((m) => m.id)).toEqual(['marcos', 'maira'])
-    expect(r.some((m) => m.role === 'sender')).toBe(false)
+    expect(r.map((m) => m.id)).toEqual(['marcos', 'maira', 'paulo'])
+    expect(r.some((m) => m.role !== 'receiver')).toBe(false)
   })
-  it('membersOfSectorIn filtra por setor (e só receivers)', () => {
+  it('membersOfSectorIn inclui receivers E managers do setor (gestor é chamável)', () => {
     expect(membersOfSectorIn(team, 'infra').map((m) => m.id)).toEqual(['marcos'])
+    expect(membersOfSectorIn(team, 'financeiro').map((m) => m.id)).toEqual(['rejane', 'paulo'])
     expect(membersOfSectorIn(team, 'marketing')).toEqual([])
+  })
+  it('membersOfSectorIn nunca inclui o sender', () => {
+    for (const s of SECTORS) {
+      expect(membersOfSectorIn(team, s.id).some((m) => m.role === 'sender')).toBe(false)
+    }
+  })
+})
+
+describe('sectorsVisibleTo — quem pode chamar quem', () => {
+  it('sender (Helena) vê todos os setores', () => {
+    expect(sectorsVisibleTo(team[0])).toEqual(SECTORS)
+  })
+  it('manager vê APENAS o próprio setor', () => {
+    const rejane = findMemberIn(team, 'rejane')!
+    expect(sectorsVisibleTo(rejane).map((s) => s.id)).toEqual(['financeiro'])
+  })
+  it('receiver não vê setor nenhum (não chama ninguém)', () => {
+    const marcos = findMemberIn(team, 'marcos')!
+    expect(sectorsVisibleTo(marcos)).toEqual([])
+  })
+  it('manager sem setor (dado ruim) não vê nada em vez de quebrar', () => {
+    const semSetor: TeamMember = {
+      id: 'x',
+      name: 'X',
+      role: 'manager',
+      initials: 'XX',
+      sector: null
+    }
+    expect(sectorsVisibleTo(semSetor)).toEqual([])
   })
 })
 

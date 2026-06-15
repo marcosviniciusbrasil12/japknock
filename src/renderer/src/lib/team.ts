@@ -7,10 +7,18 @@ export type Sector = {
   name: string
 }
 
+// Papéis:
+// - sender (diretora, Helena): chama qualquer pessoa de qualquer setor; não recebe knock.
+// - manager (gestor de setor): chama as pessoas do PRÓPRIO setor; também recebe
+//   knock (da Helena ou de outro gestor do mesmo setor). Promoção é feita
+//   direto na tabela japknock_users (UPDATE role='manager') — sem recompilar.
+// - receiver: só recebe.
+export type Role = 'sender' | 'manager' | 'receiver'
+
 export type TeamMember = {
   id: string
   name: string
-  role: 'sender' | 'receiver'
+  role: Role
   initials: string
   sector: SectorId | null
 }
@@ -32,7 +40,7 @@ type DbUser = {
   user_id: string
   name: string
   initials: string
-  role: 'sender' | 'receiver'
+  role: Role
   sector: SectorId | null
 }
 
@@ -96,8 +104,17 @@ export const receiversOf = (team: TeamMember[]): TeamMember[] =>
 export const findMemberIn = (team: TeamMember[], id: string): TeamMember | undefined =>
   team.find((t) => t.id === id)
 
+// Quem pode SER chamado num setor: receivers E gestores (gestor recebe knock
+// da Helena e entra no "Chamar todos" do setor). Só o sender fica de fora.
 export const membersOfSectorIn = (team: TeamMember[], sectorId: SectorId): TeamMember[] =>
-  receiversOf(team).filter((m) => m.sector === sectorId)
+  team.filter((m) => m.role !== 'sender' && m.sector === sectorId)
+
+// Setores que um usuário pode chamar: sender vê todos; gestor só o seu.
+export const sectorsVisibleTo = (me: TeamMember): Sector[] => {
+  if (me.role === 'sender') return SECTORS
+  if (me.role === 'manager') return SECTORS.filter((s) => s.id === me.sector)
+  return []
+}
 
 // === Registro de novo usuário ===
 

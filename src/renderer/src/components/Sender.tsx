@@ -1,14 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
-import { SECTORS, SectorId, TeamMember, membersOfSectorIn, findMemberIn } from '../lib/team'
-import { joinKnockChannel } from '../lib/supabase'
+import {
+  SectorId,
+  TeamMember,
+  membersOfSectorIn,
+  findMemberIn,
+  sectorsVisibleTo
+} from '../lib/team'
+import { joinKnockChannel, KnockPayload } from '../lib/supabase'
 import { usePresence } from '../lib/presence'
 import { playSent } from '../lib/sound'
+import { formatWhen } from '../lib/time'
 import { GL } from '../lib/design'
 import { Avatar } from './Avatar'
 import { Popover } from './Popover'
 import { PopoverHeader } from './PopoverHeader'
 import { SearchBar } from './SearchBar'
 
+// Painel de quem CHAMA. Usado por dois papéis:
+// - sender (Helena): vê todos os setores, não recebe knock.
+// - manager (gestor): vê só o próprio setor E também recebe knock — quando
+//   chega um, a view de "chamada recebida" toma o lugar da lista até o "Tô indo".
 type Props = {
   me: TeamMember
   team: TeamMember[]
@@ -18,11 +29,15 @@ type ConnStatus = 'online' | 'connecting' | 'offline'
 
 type AckInfo = { byId: string; byName: string; ts: number }
 
+type Incoming = KnockPayload & { fromName: string; fromInitials: string; count: number }
+
 const norm = (s: string): string => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
 const DEBOUNCE_MS = 1500
 
 export function Sender({ me, team }: Props) {
+  const isManager = me.role === 'manager'
+  const visibleSectors = sectorsVisibleTo(me)
   const channelRef = useRef<ReturnType<typeof joinKnockChannel> | null>(null)
   const lastKnockAt = useRef<Record<string, number>>({})
   const lastSectorKnockAt = useRef<Record<string, number>>({})
@@ -34,6 +49,31 @@ export function Sender({ me, team }: Props) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<ConnStatus>('connecting')
   const [acks, setAcks] = useState<Record<string, AckInfo>>({})
+  const [incoming, setIncoming] = useState<Incoming | null>(null)
+
+  // Callbacks do canal vivem fora do ciclo do React — ref evita snapshot velho
+  // da equipe (nome errado pra quem se cadastrou depois do mount).
+  const teamRef = useRef(team)
+  useEffect(() => {
+    teamRef.current = team
+  }, [team])
+
+  // TODOS os chamadores sem ack (from → knockId): se Helena e outro gestor
+  // batem no gestor antes do "Tô indo", o ack responde todo mundo.
+  const unackedIncoming = useRef<Map<string, string | undefined>>(new Map())
+
+  const ackAllIncoming = async (): Promise<void> => {
+    const entries = [...unackedIncoming.current.entries()]
+    unackedIncoming.current.clear()
+    if (!channelRef.current) return
+    for (const [from, knockId] of entries) {
+      try {
+        await channelRef.current.sendAck(from, me.id, knockId)
+      } catch (e) {
+        console.error('Failed to send ack', e)
+      }
+    }
+  }
 
   const addActive = (id: string): void =>
     setActive((s) => {
@@ -62,11 +102,25 @@ export function Sender({ me, team }: Props) {
 
   useEffect(() => {
     const channel = joinKnockChannel({
-      onKnock: () => {
-        /* Helena não recebe knocks */
+      onKnock: (payload) => {
+        // Só gestor recebe; sender (Helena) ignora knocks
+        if (!isManager || payload.to !== me.id) return
+        const fm = findMemberIn(teamRef.current, payload.from)
+        const fromName = fm?.name ?? payload.from
+        const fromInitials = fm?.initials ?? payload.from.slice(0, 2).toUpperCase()
+        unackedIncoming.current.set(payload.from, payload.knockId)
+        setIncoming((prev) =>
+          prev && prev.from === payload.from
+            ? { ...payload, fromName, fromInitials, count: prev.count + 1 }
+            : { ...payload, fromName, fromInitials, count: 1 }
+        )
+        window.api.showKnockAlert(payload.from, fromName, fm?.role ?? 'sender')
+        window.api.notify(`${fromName} está te chamando`, 'Bateu na sua porta digital')
       },
       onAck: (payload) => {
-        const m = findMemberIn(team, payload.by)
+        // Agora há mais de um chamador no canal: só reage a acks dos MEUS knocks
+        if (payload.knocker !== me.id) return
+        const m = findMemberIn(teamRef.current, payload.by)
         setAcks((prev) => ({
           ...prev,
           [payload.by]: { byId: payload.by, byName: m?.name ?? payload.by, ts: payload.ts }
@@ -87,6 +141,34 @@ export function Sender({ me, team }: Props) {
       channel.unsubscribe()
     }
   }, [])
+
+  // Gestor: usuário clicou "Tô indo" no AlertOverlay fullscreen.
+  // Acka TODOS os pendentes — ackAllIncoming só usa refs, sem re-registrar.
+  useEffect(() => {
+    if (!isManager) return
+    const off = window.api.onAlertAcknowledged(async ({ from }) => {
+      // Fallback: mapa pode ter zerado num remount com alerta vivo — responde
+      // ao menos o chamador do payload (sem knockId, só broadcast)
+      if (!unackedIncoming.current.has(from)) unackedIncoming.current.set(from, undefined)
+      await ackAllIncoming()
+      setIncoming(null)
+    })
+    return off
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me.id, isManager])
+
+  const ackIncoming = async (): Promise<void> => {
+    window.api.clearAlert()
+    // dismissKnockAlert dispara 'alert-acknowledged' de volta — o ackAll de lá
+    // encontra o mapa já vazio e vira no-op (sem ack duplicado)
+    window.api.dismissKnockAlert()
+    await ackAllIncoming()
+    setIncoming(null)
+  }
+
+  // Alvos chamáveis de um setor — exclui a própria pessoa (gestor não se chama)
+  const targetsOf = (sectorId: SectorId): TeamMember[] =>
+    membersOfSectorIn(team, sectorId).filter((m) => m.id !== me.id)
 
   const knock = async (target: TeamMember): Promise<void> => {
     if (!channelRef.current || status !== 'online') return
@@ -122,36 +204,132 @@ export function Sender({ me, team }: Props) {
     if (now - last < DEBOUNCE_MS) return
     lastSectorKnockAt.current[sectorId] = now
 
-    const members = membersOfSectorIn(team, sectorId)
-    members.forEach((m, i) => {
+    targetsOf(sectorId).forEach((m, i) => {
       setTimeout(() => knock(m), i * 80)
     })
   }
 
   const matchesQuery = (m: TeamMember): boolean => !query || norm(m.name).includes(norm(query))
 
-  const anyMatch = SECTORS.some(
-    (s) => membersOfSectorIn(team, s.id).filter(matchesQuery).length > 0
-  )
+  const anyMatch = visibleSectors.some((s) => targetsOf(s.id).filter(matchesQuery).length > 0)
+  const hasAnyTarget = visibleSectors.some((s) => targetsOf(s.id).length > 0)
+
+  // GESTOR COM CHAMADA ENTRANTE: a view de receber toma o popover até o ack
+  if (isManager && incoming) {
+    return (
+      <Popover>
+        <PopoverHeader me={me} status={status} subtitle="chamada recebida" />
+
+        <div className="text-center" style={{ padding: '20px 22px 18px' }}>
+          <div className="relative inline-block">
+            <Avatar
+              member={{
+                id: incoming.from,
+                name: incoming.fromName,
+                initials: incoming.fromInitials,
+                role: 'sender',
+                sector: null
+              }}
+              size={70}
+            />
+            <span
+              className="absolute rounded-full"
+              style={{
+                inset: -6,
+                border: '1.5px solid rgba(0,0,0,.35)',
+                animation: 'jk-ping 1.4s ease-out infinite'
+              }}
+            />
+            <span
+              className="absolute rounded-full"
+              style={{
+                inset: -6,
+                border: '1.5px solid rgba(0,0,0,.35)',
+                animation: 'jk-ping 1.4s ease-out 0.5s infinite'
+              }}
+            />
+          </div>
+
+          <div
+            className="font-bold"
+            style={{ fontSize: 21, marginTop: 14, letterSpacing: '-.022em' }}
+          >
+            {incoming.fromName} bateu na porta
+          </div>
+          <div
+            className="flex items-center justify-center gap-1.5"
+            style={{ fontSize: 11.5, color: GL.muted, marginTop: 4 }}
+          >
+            <span>{formatWhen(incoming.ts)}</span>
+            {incoming.count > 1 && (
+              <>
+                <span>·</span>
+                <span style={{ color: GL.ink, fontWeight: 600 }}>{incoming.count}× seguidas</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-2" style={{ padding: '0 16px 14px' }}>
+          <button
+            onClick={ackIncoming}
+            className="flex-1 font-semibold transition-colors hover:opacity-90"
+            style={{
+              padding: '11px 14px',
+              fontSize: 14,
+              letterSpacing: '-.005em',
+              background: GL.ink,
+              color: GL.paper,
+              border: 0,
+              borderRadius: 8,
+              cursor: 'pointer'
+            }}
+          >
+            Tô indo ↗
+          </button>
+        </div>
+
+        <div
+          className="flex items-center justify-center uppercase"
+          style={{
+            padding: '8px 14px 9px',
+            borderTop: '0.5px solid var(--jk-divider)',
+            fontSize: 10,
+            color: GL.faint,
+            fontWeight: 500,
+            letterSpacing: '.04em'
+          }}
+        >
+          tocando som… aguardando reconhecimento
+        </div>
+      </Popover>
+    )
+  }
 
   return (
     <Popover>
       <PopoverHeader
         me={me}
         status={status}
-        subtitle={status === 'online' ? 'online · transmissão ativa' : undefined}
+        subtitle={
+          status === 'online'
+            ? isManager
+              ? `online · gerência ${visibleSectors[0]?.name ?? ''}`
+              : 'online · transmissão ativa'
+            : undefined
+        }
       />
 
       <SearchBar value={query} onChange={setQuery} />
 
       <div className="px-2.5 pb-2.5 max-h-[520px] overflow-y-auto">
-        {SECTORS.map((sec) => {
-          const members = membersOfSectorIn(team, sec.id).filter(matchesQuery)
+        {visibleSectors.map((sec) => {
+          const sectorTargets = targetsOf(sec.id)
+          const members = sectorTargets.filter(matchesQuery)
           // Esconde setor vazio (a não ser que seja busca ativa, pra dar feedback)
           if (members.length === 0 && !query) return null
           if (query && members.length === 0) return null
 
-          const sectorMembers = membersOfSectorIn(team, sec.id)
           const isSectorHover = hoverSector === sec.id
           return (
             <div key={sec.id} className="py-1.5">
@@ -171,7 +349,7 @@ export function Sender({ me, team }: Props) {
                   onClick={() => knockSector(sec.id)}
                   onMouseEnter={() => setHoverSector(sec.id)}
                   onMouseLeave={() => setHoverSector(null)}
-                  disabled={status !== 'online' || sectorMembers.length === 0}
+                  disabled={status !== 'online' || sectorTargets.length === 0}
                   className="flex items-center gap-1 font-semibold uppercase transition-all"
                   style={{
                     fontSize: 9.5,
@@ -200,7 +378,7 @@ export function Sender({ me, team }: Props) {
                       fill="none"
                     />
                   </svg>
-                  <span>Chamar {sectorMembers.length}</span>
+                  <span>Chamar {sectorTargets.length}</span>
                 </button>
               </div>
 
@@ -287,6 +465,20 @@ export function Sender({ me, team }: Props) {
                           }}
                         >
                           {m.name}
+                          {m.role === 'manager' && (
+                            <span
+                              className="uppercase"
+                              style={{
+                                fontSize: 8.5,
+                                fontWeight: 700,
+                                color: GL.faint,
+                                letterSpacing: '.05em',
+                                marginLeft: 5
+                              }}
+                            >
+                              gerente
+                            </span>
+                          )}
                         </div>
                         <div
                           className="mt-px font-medium flex items-center gap-1"
@@ -332,6 +524,17 @@ export function Sender({ me, team }: Props) {
             </div>
           )
         })}
+
+        {!query && !hasAnyTarget && (
+          <div
+            className="text-center"
+            style={{ padding: '28px 16px', fontSize: 11.5, color: GL.muted, lineHeight: 1.5 }}
+          >
+            {isManager
+              ? `Ninguém do seu setor se cadastrou ainda. Assim que alguém entrar em ${visibleSectors[0]?.name ?? 'seu setor'}, aparece aqui.`
+              : 'Ninguém se cadastrou ainda.'}
+          </div>
+        )}
 
         {query && !anyMatch && (
           <div

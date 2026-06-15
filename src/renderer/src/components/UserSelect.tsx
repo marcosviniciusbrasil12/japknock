@@ -81,11 +81,17 @@ export function UserSelect({ team, onPick }: Props) {
                   }}
                 >
                   <Avatar member={m} size={44} ring={isHover ? 'active' : 'subtle'} />
-                  <span className="font-medium" style={{ fontSize: 12, color: GL.ink, marginTop: 2 }}>
+                  <span
+                    className="font-medium"
+                    style={{ fontSize: 12, color: GL.ink, marginTop: 2 }}
+                  >
                     {m.name}
                   </span>
                   {m.role === 'sender' && (
                     <span style={{ fontSize: 9.5, color: GL.faint, marginTop: -2 }}>diretora</span>
+                  )}
+                  {m.role === 'manager' && (
+                    <span style={{ fontSize: 9.5, color: GL.faint, marginTop: -2 }}>gerente</span>
                   )}
                 </button>
               )
@@ -167,10 +173,7 @@ export function UserSelect({ team, onPick }: Props) {
           </select>
 
           {error && (
-            <div
-              className="mt-2 font-medium"
-              style={{ fontSize: 11, color: 'var(--jk-danger)' }}
-            >
+            <div className="mt-2 font-medium" style={{ fontSize: 11, color: 'var(--jk-danger)' }}>
               {error}
             </div>
           )}

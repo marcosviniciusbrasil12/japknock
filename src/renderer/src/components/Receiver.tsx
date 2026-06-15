@@ -25,6 +25,37 @@ export function Receiver({ me, team }: Props) {
   const [, setTick] = useState(0) // forces re-render pra atualizar "há Xs"
   const [version, setVersion] = useState('')
 
+  // TODOS os chamadores sem ack (from → knockId). Com gestores existe mais de
+  // um chamador possível: se Helena e a Rejane batem antes do "Tô indo", o
+  // pending exibido é o último, mas o ack precisa responder TODO MUNDO —
+  // senão o primeiro chamador fica eternamente sem o "tá indo ↗".
+  const unacked = useRef<Map<string, string | undefined>>(new Map())
+
+  // Callbacks do canal usam o team via ref (mesmo padrão do Sender): sem isso,
+  // um gestor promovido depois do mount chegaria com papel/nome do snapshot
+  // velho e o overlay diria "diretoria" em vez de "gerência".
+  const teamRef = useRef(team)
+  useEffect(() => {
+    teamRef.current = team
+  }, [team])
+
+  // Responde todos os chamadores pendentes e marca os recentes como atendidos
+  const ackAll = async (): Promise<void> => {
+    const entries = [...unacked.current.entries()]
+    unacked.current.clear()
+    if (!channelRef.current) return
+    for (const [from, knockId] of entries) {
+      try {
+        await channelRef.current.sendAck(from, me.id, knockId)
+      } catch (e) {
+        console.error('Failed to send ack', e)
+      }
+      if (knockId) {
+        setRecents((r) => r.map((k) => (k.knockId === knockId ? { ...k, ackedAt: Date.now() } : k)))
+      }
+    }
+  }
+
   // Anuncia presença no canal — sem isso a Helena vê todo mundo "offline"
   // pra sempre (o track() só acontecia no Sender).
   usePresence(me.id)
@@ -63,36 +94,34 @@ export function Receiver({ me, team }: Props) {
     }
   }, [me.id])
 
-  // Escuta quando o usuário clica "Tô indo" no fullscreen AlertOverlay
+  // Escuta quando o usuário clica "Tô indo" no fullscreen AlertOverlay.
+  // Acka TODOS os pendentes (não só o do alerta) — ackAll só usa refs, então
+  // o effect não precisa re-registrar a cada pending.
   useEffect(() => {
     const off = window.api.onAlertAcknowledged(async ({ from }) => {
-      // Acha o knockId do pending pra mandar o ack pra a row certa
-      const knockId = pending?.knockId
-      if (channelRef.current) {
-        try {
-          await channelRef.current.sendAck(from, me.id, knockId)
-        } catch (e) {
-          console.error('Failed to send ack after alert dismiss', e)
-        }
-      }
-      setPending((curr) => (curr?.from === from ? null : curr))
-      // Marca como acked na lista de recentes
-      setRecents((r) => r.map((k) => (k.knockId === knockId ? { ...k, ackedAt: Date.now() } : k)))
+      // Fallback: se o mapa zerou (remount do popover no meio de um alerta —
+      // ex: promoção de papel ao vivo), ainda responde o chamador do payload
+      // pra Helena não ficar sem o "tá indo" (sem knockId, só broadcast).
+      if (!unacked.current.has(from)) unacked.current.set(from, undefined)
+      await ackAll()
+      setPending(null)
     })
     return off
-  }, [me.id, pending])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me.id])
 
   useEffect(() => {
     const channel = joinKnockChannel({
       onKnock: (payload) => {
         if (payload.to !== me.id) return
-        const fromMember = findMemberIn(team, payload.from)
+        const fromMember = findMemberIn(teamRef.current, payload.from)
         const fromName = fromMember?.name ?? payload.from
         const fromInitials = fromMember?.initials ?? payload.from.slice(0, 2).toUpperCase()
         const event: KnockEvent = { ...payload, fromName, fromInitials }
+        unacked.current.set(payload.from, payload.knockId)
         setPending(event)
         setRecents((r) => [event, ...r.filter((k) => k.knockId !== event.knockId)].slice(0, 10))
-        window.api.showKnockAlert(payload.from, fromName)
+        window.api.showKnockAlert(payload.from, fromName, fromMember?.role ?? 'sender')
         window.api.notify(`${fromName} está te chamando`, 'Bateu na sua porta digital')
       },
       onAck: () => {
@@ -108,17 +137,10 @@ export function Receiver({ me, team }: Props) {
 
   const handleAck = async (): Promise<void> => {
     window.api.clearAlert()
+    // dismissKnockAlert dispara 'alert-acknowledged' de volta — o ackAll de lá
+    // encontra o mapa já vazio e vira no-op (sem ack duplicado)
     window.api.dismissKnockAlert()
-    if (pending && channelRef.current) {
-      try {
-        await channelRef.current.sendAck(pending.from, me.id, pending.knockId)
-      } catch (e) {
-        console.error('Failed to send ack', e)
-      }
-      setRecents((r) =>
-        r.map((k) => (k.knockId === pending.knockId ? { ...k, ackedAt: Date.now() } : k))
-      )
-    }
+    await ackAll()
     setPending(null)
   }
 

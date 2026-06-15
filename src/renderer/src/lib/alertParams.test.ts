@@ -33,8 +33,15 @@ describe('parseAlertParams', () => {
     const p = parseAlertParams('#alert')
     expect(p.from).toBe('helena')
     expect(p.fromName).toBe('Alguém')
+    expect(p.fromRole).toBe('sender')
     expect(p.silent).toBe(false)
     expect(p.solidBg).toBe(false)
+  })
+
+  it('lê o papel do chamador (gestor) e ignora valores inválidos', () => {
+    expect(parseAlertParams('#alert?from=rejane&fromRole=manager').fromRole).toBe('manager')
+    expect(parseAlertParams('#alert?from=helena&fromRole=sender').fromRole).toBe('sender')
+    expect(parseAlertParams('#alert?from=x&fromRole=hacker').fromRole).toBe('sender')
   })
 
   it('aceita hash sem o "?" também', () => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchTeam, findMemberIn, TeamMember } from '../lib/team'
 import { useSystemTheme } from '../lib/theme'
 import { Avatar } from './Avatar'
@@ -16,6 +16,9 @@ export function AlertOverlay() {
   const initial = parseAlertParams(window.location.hash)
   const [from, setFrom] = useState(initial.from)
   const [fromName, setFromName] = useState(initial.fromName)
+  // Papel do chamador vem da URL (não do fetch): subtítulo certo desde o
+  // primeiro frame, mesmo sem rede
+  const [fromRole, setFromRole] = useState(initial.fromRole)
   const [count, setCount] = useState(1)
   const [timeLabel, setTimeLabel] = useState(formatTime())
 
@@ -59,11 +62,27 @@ export function AlertOverlay() {
     }
   }, [])
 
+  const fromRef = useRef(from)
+  useEffect(() => {
+    fromRef.current = from
+  }, [from])
+
   useEffect(() => {
     const off = window.api.onKnockAgain((data) => {
-      setFrom(data.from)
-      setFromName(data.fromName)
-      setCount((c) => c + 1)
+      if (data.from === fromRef.current) {
+        // Mesma pessoa insistindo: vira "Nª chamada seguida"
+        setCount((c) => c + 1)
+      } else {
+        // Chamador DIFERENTE (ex: Helena e um gestor): troca a identidade e
+        // ZERA o contador — senão o alerta diria "2ª chamada seguida"
+        // misturando duas pessoas distintas. O ref atualiza SÍNCRONO aqui
+        // (não no effect): dois IPCs na mesma fila não podem ler valor velho.
+        fromRef.current = data.from
+        setFrom(data.from)
+        setFromName(data.fromName)
+        setFromRole(data.fromRole === 'manager' ? 'manager' : 'sender')
+        setCount(1)
+      }
       if (!initial.silent) playKnock()
     })
     return off
@@ -193,7 +212,9 @@ export function AlertOverlay() {
             >
               {count > 1
                 ? `${count}ª chamada seguida — provavelmente urgente`
-                : 'A diretoria tá chamando você.'}
+                : fromRole === 'manager'
+                  ? 'A gerência do seu setor tá chamando você.'
+                  : 'A diretoria tá chamando você.'}
             </div>
           </div>
 

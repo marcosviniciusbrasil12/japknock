@@ -81,8 +81,12 @@ function App() {
     return <UserSelect team={team} onPick={handlePick} />
   }
 
-  if (me.role === 'sender') {
-    return <Sender me={me} team={team} />
+  // Sender e manager usam o mesmo painel de chamadas — o componente restringe
+  // os setores visíveis (e habilita recebimento) conforme o papel. A key força
+  // remount se o papel mudar ao vivo (closure do canal captura isManager no
+  // mount; sem remount, um flip sender↔manager deixaria o canal dessincronizado).
+  if (me.role === 'sender' || me.role === 'manager') {
+    return <Sender key={`${me.id}:${me.role}`} me={me} team={team} />
   }
 
   return <Receiver me={me} team={team} />

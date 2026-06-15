@@ -10,9 +10,11 @@ declare global {
       setAutostart: (enable: boolean) => void
       getAutostart: () => Promise<boolean>
       hideWindow: () => void
-      showKnockAlert: (from: string, fromName: string) => void
+      showKnockAlert: (from: string, fromName: string, fromRole?: string) => void
       dismissKnockAlert: () => void
-      onKnockAgain: (cb: (data: { from: string; fromName: string }) => void) => () => void
+      onKnockAgain: (
+        cb: (data: { from: string; fromName: string; fromRole?: string }) => void
+      ) => () => void
       onAlertAcknowledged: (cb: (data: { from: string; fromName: string }) => void) => () => void
       adminKill: () => void
       adminRestart: () => void

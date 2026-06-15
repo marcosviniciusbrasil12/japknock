@@ -328,14 +328,14 @@ async function manualCheckForUpdates(): Promise<void> {
   }
 }
 
-function showKnockAlert(from: string, fromName: string): void {
+function showKnockAlert(from: string, fromName: string, fromRole = 'sender'): void {
   currentAlert = { from, fromName }
 
   // Se já tem alertas mostrando (de uma chamada anterior), só atualiza o contador
   if (alertWindows.length > 0) {
     alertWindows.forEach((w) => {
       if (!w.isDestroyed()) {
-        w.webContents.send('knock-again', { from, fromName })
+        w.webContents.send('knock-again', { from, fromName, fromRole })
         w.focus()
         w.moveTop()
       }
@@ -425,6 +425,7 @@ function showKnockAlert(from: string, fromName: string): void {
     const params =
       `from=${encodeURIComponent(from)}` +
       `&fromName=${encodeURIComponent(fromName)}` +
+      `&fromRole=${encodeURIComponent(fromRole)}` +
       // Monitor não-primário não toca som E renderiza com bg solid CSS (sem vibrancy)
       (isPrimary ? '' : '&silent=1&solidBg=1')
     win.loadURL(`${baseUrl}#alert?${params}`)
@@ -601,8 +602,11 @@ app.whenReady().then(() => {
 
   ipcMain.on(
     'show-knock-alert',
-    (_event, { from, fromName }: { from: string; fromName: string }) => {
-      showKnockAlert(from, fromName)
+    (
+      _event,
+      { from, fromName, fromRole }: { from: string; fromName: string; fromRole?: string }
+    ) => {
+      showKnockAlert(from, fromName, fromRole === 'manager' ? 'manager' : 'sender')
     }
   )
 
