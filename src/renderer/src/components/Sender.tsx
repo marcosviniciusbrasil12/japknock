@@ -115,7 +115,7 @@ export function Sender({ me, team }: Props) {
             : { ...payload, fromName, fromInitials, count: 1 }
         )
         window.api.showKnockAlert(payload.from, fromName, fm?.role ?? 'sender')
-        window.api.notify(`${fromName} está te chamando`, 'Bateu na sua porta digital')
+        window.api.notify(fromName, 'está chamando você')
       },
       onAck: (payload) => {
         // Agora há mais de um chamador no canal: só reage a acks dos MEUS knocks
@@ -254,7 +254,7 @@ export function Sender({ me, team }: Props) {
             className="font-bold"
             style={{ fontSize: 21, marginTop: 14, letterSpacing: '-.022em' }}
           >
-            {incoming.fromName} bateu na porta
+            {incoming.fromName} está te chamando
           </div>
           <div
             className="flex items-center justify-center gap-1.5"

@@ -122,7 +122,7 @@ export function Receiver({ me, team }: Props) {
         setPending(event)
         setRecents((r) => [event, ...r.filter((k) => k.knockId !== event.knockId)].slice(0, 10))
         window.api.showKnockAlert(payload.from, fromName, fromMember?.role ?? 'sender')
-        window.api.notify(`${fromName} está te chamando`, 'Bateu na sua porta digital')
+        window.api.notify(fromName, 'está chamando você')
       },
       onAck: () => {
         /* Receiver não age em acks (só Sender) */
@@ -144,7 +144,7 @@ export function Receiver({ me, team }: Props) {
     setPending(null)
   }
 
-  // INCOMING: chamada não-reconhecida → mostra "X bateu na porta"
+  // INCOMING: chamada não-reconhecida → mostra "X está te chamando"
   if (pending) {
     const count = recents.filter(
       (r) => r.from === pending.from && Date.now() - r.ts < 30_000
@@ -187,7 +187,7 @@ export function Receiver({ me, team }: Props) {
             className="font-bold"
             style={{ fontSize: 21, marginTop: 14, letterSpacing: '-.022em' }}
           >
-            {pending.fromName} bateu na porta
+            {pending.fromName} está te chamando
           </div>
           <div
             className="flex items-center justify-center gap-1.5"

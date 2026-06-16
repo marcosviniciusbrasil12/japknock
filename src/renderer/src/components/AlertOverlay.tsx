@@ -200,7 +200,7 @@ export function AlertOverlay() {
                 color: GL.ink
               }}
             >
-              {fromName} bateu na porta
+              {fromName}
             </div>
             <div
               className="font-medium"
