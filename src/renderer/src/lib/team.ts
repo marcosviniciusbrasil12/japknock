@@ -1,6 +1,13 @@
 import { supabase, ResilientSubscription } from './supabase'
 
-export type SectorId = 'inovacao' | 'financeiro' | 'contabil' | 'infra' | 'marketing' | 'rh'
+export type SectorId =
+  | 'inovacao'
+  | 'financeiro'
+  | 'contabil'
+  | 'infra'
+  | 'marketing'
+  | 'rh'
+  | 'logistica'
 
 export type Sector = {
   id: SectorId
@@ -31,7 +38,8 @@ export const SECTORS: Sector[] = [
   { id: 'contabil', name: 'Contábil' },
   { id: 'infra', name: 'Infraestrutura' },
   { id: 'marketing', name: 'Marketing' },
-  { id: 'rh', name: 'RH/DP' }
+  { id: 'rh', name: 'RH/DP' },
+  { id: 'logistica', name: 'Logística' }
 ]
 
 const USERS_TABLE = 'japknock_users'

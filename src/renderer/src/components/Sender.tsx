@@ -50,6 +50,8 @@ export function Sender({ me, team }: Props) {
   const [status, setStatus] = useState<ConnStatus>('connecting')
   const [acks, setAcks] = useState<Record<string, AckInfo>>({})
   const [incoming, setIncoming] = useState<Incoming | null>(null)
+  // Setor aguardando confirmação do "Chamar todos" (null = sem diálogo aberto)
+  const [confirmSector, setConfirmSector] = useState<SectorId | null>(null)
 
   // Callbacks do canal vivem fora do ciclo do React — ref evita snapshot velho
   // da equipe (nome errado pra quem se cadastrou depois do mount).
@@ -209,10 +211,20 @@ export function Sender({ me, team }: Props) {
     })
   }
 
+  // Confirma o "Chamar todos" do setor pendente e fecha o diálogo.
+  const confirmKnockSector = (): void => {
+    if (confirmSector) knockSector(confirmSector)
+    setConfirmSector(null)
+  }
+
   const matchesQuery = (m: TeamMember): boolean => !query || norm(m.name).includes(norm(query))
 
   const anyMatch = visibleSectors.some((s) => targetsOf(s.id).filter(matchesQuery).length > 0)
   const hasAnyTarget = visibleSectors.some((s) => targetsOf(s.id).length > 0)
+
+  // Setor aguardando confirmação + quantas pessoas serão chamadas
+  const pendingSector = confirmSector ? visibleSectors.find((s) => s.id === confirmSector) : null
+  const pendingCount = confirmSector ? targetsOf(confirmSector).length : 0
 
   // GESTOR COM CHAMADA ENTRANTE: a view de receber toma o popover até o ack
   if (isManager && incoming) {
@@ -308,6 +320,71 @@ export function Sender({ me, team }: Props) {
 
   return (
     <Popover>
+      {pendingSector && (
+        <div
+          className="fixed inset-0 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,.32)', zIndex: 50, padding: 18 }}
+          onClick={() => setConfirmSector(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: GL.paper,
+              borderRadius: 12,
+              padding: '18px 18px 14px',
+              width: '100%',
+              maxWidth: 260,
+              boxShadow: '0 8px 30px rgba(0,0,0,.25)',
+              border: '0.5px solid var(--jk-divider)'
+            }}
+          >
+            <div
+              className="font-bold"
+              style={{ fontSize: 16, letterSpacing: '-.02em', color: GL.ink }}
+            >
+              Chamar todos de {pendingSector.name}?
+            </div>
+            <div style={{ fontSize: 12, color: GL.muted, marginTop: 5, lineHeight: 1.4 }}>
+              {pendingCount} {pendingCount === 1 ? 'pessoa vai' : 'pessoas vão'} receber o alerta
+              agora.
+            </div>
+            <div className="flex gap-2" style={{ marginTop: 16 }}>
+              <button
+                onClick={() => setConfirmSector(null)}
+                className="flex-1 font-semibold transition-colors hover:opacity-90"
+                style={{
+                  padding: '9px 12px',
+                  fontSize: 13,
+                  background: 'transparent',
+                  color: GL.ink,
+                  border: '0.5px solid var(--jk-divider)',
+                  borderRadius: 8,
+                  cursor: 'pointer'
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmKnockSector}
+                disabled={status !== 'online' || pendingCount === 0}
+                className="flex-1 font-semibold transition-colors hover:opacity-90 disabled:opacity-40"
+                style={{
+                  padding: '9px 12px',
+                  fontSize: 13,
+                  background: GL.ink,
+                  color: GL.paper,
+                  border: 0,
+                  borderRadius: 8,
+                  cursor: status === 'online' ? 'pointer' : 'not-allowed'
+                }}
+              >
+                Chamar {pendingCount}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <PopoverHeader
         me={me}
         status={status}
@@ -346,7 +423,7 @@ export function Sender({ me, team }: Props) {
                 </span>
                 <span className="flex-1 h-px" style={{ background: 'var(--jk-divider)' }} />
                 <button
-                  onClick={() => knockSector(sec.id)}
+                  onClick={() => setConfirmSector(sec.id)}
                   onMouseEnter={() => setHoverSector(sec.id)}
                   onMouseLeave={() => setHoverSector(null)}
                   disabled={status !== 'online' || sectorTargets.length === 0}
