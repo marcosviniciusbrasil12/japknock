@@ -1,10 +1,5 @@
 import { useEffect } from 'react'
-import {
-  subscribeToCommands,
-  fetchPendingCommands,
-  markCommandExecuted,
-  AdminCommand
-} from './supabase'
+import { subscribeToCommands, markCommandExecuted, AdminCommand } from './supabase'
 
 const dispatch = (cmd: AdminCommand): void => {
   switch (cmd) {
@@ -26,28 +21,14 @@ const dispatch = (cmd: AdminCommand): void => {
 export function useAdminCommands(userId: string | undefined): void {
   useEffect(() => {
     if (!userId) return
-    let cancelled = false
-
-    // Pega comandos pendentes que possam ter sido emitidos enquanto offline
-    fetchPendingCommands(userId).then(async (rows) => {
-      if (cancelled) return
-      for (const row of rows) {
-        console.log('[japknock] executing pending command', row.command, row.id)
-        await markCommandExecuted(row.id)
-        dispatch(row.command)
-      }
-    })
-
-    // Subscribe a inserts em tempo real
+    // O tick imediato do polling já cobre comandos emitidos com o app offline.
+    // Marca executado ANTES de despachar: kill/restart derrubam o app e o
+    // comando não pode voltar a rodar no próximo boot.
     const ch = subscribeToCommands(userId, async (cmd) => {
-      console.log('[japknock] received command', cmd.command, cmd.id)
+      console.log('[japknock] executing command', cmd.command, cmd.id)
       await markCommandExecuted(cmd.id)
       dispatch(cmd.command)
     })
-
-    return () => {
-      cancelled = true
-      ch.unsubscribe()
-    }
+    return () => ch.unsubscribe()
   }, [userId])
 }

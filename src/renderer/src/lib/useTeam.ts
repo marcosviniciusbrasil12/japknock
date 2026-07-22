@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { TeamMember, fetchTeam, subscribeToTeamChanges } from './team'
 import { backoffDelay } from './backoff'
 
-// Hook que carrega o team da prod + escuta postgres_changes em tempo real.
-// Toda vez que alguém se registra na equipe, o team atualiza pra todo mundo.
+// Hook que carrega o team da prod + mantém sincronizado por polling.
+// Cadastros novos aparecem pra todo mundo em até TEAM_POLL_MS.
 // `synced` = já tivemos PELO MENOS UMA resposta real da DB nesta sessão.
 // Enquanto synced=false, `team` vazio significa "sem rede", não "equipe vazia"
 // — decisões destrutivas (ex: apagar identidade local) exigem synced=true.
@@ -18,9 +18,9 @@ export function useTeam(): { team: TeamMember[]; loading: boolean; synced: boole
     let retryCount = 0
     let timer: ReturnType<typeof setTimeout> | null = null
 
-    // Re-tenta com backoff até a primeira resposta real. Cobre o caso em que o
-    // REST falha com o websocket saudável — aí o onSubscribed da subscription
-    // não re-dispara e, sem este loop, ficaríamos presos em "Sem conexão".
+    // Re-tenta com backoff até a primeira resposta real: o polling regular
+    // (TEAM_POLL_MS) seria lento demais pra primeira sincronização num boot
+    // sem rede — este loop garante resposta rápida assim que o Wi-Fi volta.
     // [] também é tratado como não-confiável (RLS negando SELECT devolve 200
     // vazio, sem error): em produção a equipe nunca é vazia (helena é seed).
     const attempt = (): void => {
@@ -39,8 +39,8 @@ export function useTeam(): { team: TeamMember[]; loading: boolean; synced: boole
     }
     attempt()
 
-    // A subscription é resiliente (backoff + catch-up no reconnect) e é o
-    // caminho normal de recuperação quando a rede volta.
+    // O polling é resiliente (erro não mata o loop) e é o caminho normal de
+    // atualização contínua — inclusive quando a rede volta.
     const ch = subscribeToTeamChanges((updated) => {
       done = true
       setTeam(updated)

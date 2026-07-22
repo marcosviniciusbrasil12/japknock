@@ -1,6 +1,12 @@
 import { createClient, RealtimeChannel } from '@supabase/supabase-js'
 import { backoffDelay } from './backoff'
 
+// v1.4.3: postgres_changes foi REMOVIDO de propósito — não reintroduzir.
+// No incidente de 2026-07-21, WAL pesado do JAPHub derrubou o pool de CDC do
+// Realtime por ~20h e todo app dependente de postgres_changes ficou surdo.
+// Broadcast (canal wall-knock) não passa por esse pool e sobreviveu. Equipe e
+// comandos admin mudam raramente — polling leve cobre com latência aceitável.
+
 // Supabase de PRODUÇÃO do JAPHub (migrado de dev em v1.0.1)
 const SUPABASE_URL = 'https://fokqgkurdshfygfjntxd.supabase.co'
 const SUPABASE_ANON_KEY =
@@ -42,74 +48,31 @@ export type ChannelCallbacks = {
   onStatus: (status: 'online' | 'connecting' | 'offline') => void
 }
 
-// Wrapper genérico que mantém uma subscription (postgres_changes) VIVA:
-// reconecta com backoff exponencial se a conexão cair e re-sincroniza no
-// reconnect (via onSubscribed). Usado pela sync de equipe e comandos admin —
-// sem isso, uma queda de rede fazia o cliente parar de receber cadastros novos
-// até reiniciar o app.
-export type SubscriptionOpts = {
-  label: string
-  build: () => RealtimeChannel // cria o channel com os .on(...) já anexados (sem subscribe)
-  onSubscribed?: () => void // chamado a cada (re)conexão bem-sucedida — bom p/ catch-up
-}
+// Loop de polling com tick imediato. setTimeout encadeado (não setInterval):
+// um tick lento nunca sobrepõe o próximo, e falha de rede não mata o loop.
+export type PollingHandle = { unsubscribe: () => void }
 
-export class ResilientSubscription {
-  private channel: RealtimeChannel | null = null
-  private retryCount = 0
-  private retryTimer: ReturnType<typeof setTimeout> | null = null
-  private cancelled = false
-
-  constructor(private opts: SubscriptionOpts) {}
-
-  start(): this {
-    this.cancelled = false
-    this.connect()
-    return this
-  }
-
-  unsubscribe(): void {
-    this.cancelled = true
-    if (this.retryTimer) clearTimeout(this.retryTimer)
-    if (this.channel) {
-      try {
-        this.channel.unsubscribe()
-      } catch {
-        /* ignore */
-      }
+export const startPolling = (
+  label: string,
+  intervalMs: number,
+  tick: () => Promise<void>
+): PollingHandle => {
+  let cancelled = false
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const loop = async (): Promise<void> => {
+    try {
+      await tick()
+    } catch (e) {
+      console.error(`[japknock] ${label} poll failed`, e)
     }
+    if (!cancelled) timer = setTimeout(loop, intervalMs)
   }
-
-  private connect(): void {
-    if (this.cancelled) return
-    const ch = this.opts.build()
-    ch.subscribe((status, err) => {
-      console.log(`[japknock] ${this.opts.label} status:`, status, err ? `err=${err.message}` : '')
-      if (status === 'SUBSCRIBED') {
-        this.retryCount = 0
-        this.opts.onSubscribed?.()
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        if (this.channel === ch) this.scheduleRetry()
-      }
-    })
-    this.channel = ch
-  }
-
-  private scheduleRetry(): void {
-    if (this.cancelled) return
-    const delay = backoffDelay(this.retryCount)
-    this.retryCount++
-    console.log(`[japknock] ${this.opts.label} retry in ${delay}ms (attempt ${this.retryCount})`)
-    if (this.retryTimer) clearTimeout(this.retryTimer)
-    this.retryTimer = setTimeout(() => {
-      if (this.channel) {
-        try {
-          this.channel.unsubscribe()
-        } catch {
-          /* ignore */
-        }
-      }
-      this.connect()
-    }, delay)
+  void loop()
+  return {
+    unsubscribe: () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
   }
 }
 
@@ -258,31 +221,20 @@ export const markCommandExecuted = async (id: string): Promise<void> => {
   await supabase.from(COMMANDS_TABLE).update({ executed_at: new Date().toISOString() }).eq('id', id)
 }
 
-// Subscribe a postgres_changes da tabela de comandos — Marcos insere uma row, app recebe.
-// Resiliente: reconecta com backoff se a conexão cair (senão um kill/restart
-// remoto poderia não chegar no cliente que mais precisa ser controlado).
+// Comandos remotos por polling — Marcos insere uma row, o app pega no próximo
+// tick (≤45s). O tick imediato também cobre comandos emitidos com o app
+// offline, então dispensa fetch inicial separado no caller.
+const COMMANDS_POLL_MS = 45_000
+
 export const subscribeToCommands = (
   userId: string,
-  onCommand: (cmd: CommandRow) => void
-): ResilientSubscription =>
-  new ResilientSubscription({
-    label: `admin-commands-${userId}`,
-    build: () =>
-      supabase.channel(`admin-commands-${userId}`).on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: COMMANDS_TABLE
-        },
-        (payload) => {
-          const row = payload.new as CommandRow
-          if (row.target_user === userId || row.target_user === 'all') {
-            onCommand(row)
-          }
-        }
-      )
-  }).start()
+  onCommand: (cmd: CommandRow) => void | Promise<void>
+): PollingHandle =>
+  startPolling(`admin-commands-${userId}`, COMMANDS_POLL_MS, async () => {
+    for (const row of await fetchPendingCommands(userId)) {
+      await onCommand(row)
+    }
+  })
 
 // Histórico dos últimos N knocks recebidos por um usuário
 export const fetchRecentKnocksTo = async (

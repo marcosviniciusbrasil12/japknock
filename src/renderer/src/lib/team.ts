@@ -1,4 +1,4 @@
-import { supabase, ResilientSubscription } from './supabase'
+import { supabase, startPolling, PollingHandle } from './supabase'
 
 export type SectorId =
   | 'inovacao'
@@ -82,28 +82,19 @@ export const fetchTeam = async (): Promise<TeamMember[] | null> => {
   }
 }
 
+// Cadastro novo demora até TEAM_POLL_MS pra aparecer pros OUTROS; quem acabou
+// de se cadastrar se vê na hora via optimisticMember (App.tsx).
+const TEAM_POLL_MS = 120_000
+
 export const subscribeToTeamChanges = (
   onChange: (team: TeamMember[]) => void
-): ResilientSubscription => {
-  const refresh = async (): Promise<void> => {
+): PollingHandle =>
+  startPolling('team-changes', TEAM_POLL_MS, async () => {
     const next = await fetchTeam()
     // null = falha de rede; [] não acontece em produção (helena é seed
     // permanente). Só propaga lista real pra não "sumir" todo mundo da tela.
     if (next && next.length > 0) onChange(next)
-  }
-  return new ResilientSubscription({
-    label: 'team-changes',
-    build: () =>
-      supabase
-        .channel('japknock-users-changes')
-        .on('postgres_changes', { event: '*', schema: 'public', table: USERS_TABLE }, () => {
-          refresh()
-        }),
-    // Catch-up: a cada (re)conexão, puxa a lista atual. Pega cadastros que
-    // entraram enquanto o cliente estava offline (postgres_changes não dá replay).
-    onSubscribed: refresh
-  }).start()
-}
+  })
 
 // Helpers — recebem o team atual (do estado React) em vez de hardcoded
 export const receiversOf = (team: TeamMember[]): TeamMember[] =>

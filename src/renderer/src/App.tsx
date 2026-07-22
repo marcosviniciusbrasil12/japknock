@@ -38,8 +38,8 @@ function App() {
   const isAlertWindow = window.location.hash.startsWith('#alert')
   const { team, loading, synced } = useTeam()
   const [meId, setMeId] = useState<string | null>(() => getStoredMeId())
-  // Cache do membro acabado de cadastrar — evita race entre INSERT na DB e
-  // Realtime postgres_changes chegar no team state.
+  // Cache do membro acabado de cadastrar — cobre a janela entre o INSERT na
+  // DB e o próximo tick do polling de equipe (até TEAM_POLL_MS).
   const [optimisticMember, setOptimisticMember] = useState<TeamMember | null>(null)
 
   const me: TeamMember | null = meId
@@ -50,8 +50,8 @@ function App() {
   // verdade (synced) e o usuário realmente não existe mais — ex: deletado pelo
   // admin. Sem o guard de synced, um boot offline (fetch falha → team vazio)
   // apagava a identidade em 3s e a máquina ficava surda até recadastrar.
-  // O delay de 3s dá tempo do subscribe Realtime atualizar o team state após
-  // um cadastro novo (evita loop de re-cadastro).
+  // O delay de 3s absorve flutuações momentâneas do team state (o cadastro
+  // novo em si é coberto pelo optimisticMember até o polling alcançar).
   useEffect(() => {
     if (loading || !synced || !meId || me) return
     const timer = setTimeout(() => {
